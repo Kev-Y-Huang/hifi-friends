@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>HiFi-Friends</title>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="{{ url_for('static', filename='styles.css') }}"
+    />
+  </head>
+  <body>
+    <h1>HiFi-Friends</h1>
+    <form action="{{ url_for('play_song') }}" method="POST">
+      <ul>
+        {% for song in songs %}
+        <li>
+          <input
+            type="radio"
+            id="song{{ loop.index }}"
+            name="selected_song"
+            value="{{ loop.index }}"
+          />
+          <label for="song{{ loop.index }}">
+            <h3>{{ song.title }}</h3>
+            <p>{{ song.artist }} - {{ song.duration }}</p>
+          </label>
+        </li>
+        {% endfor %}
+      </ul>
+      <button type="submit">Play Song</button>
+    </form>
+    <audio id="audioPlayer" controls>
+      <source src="" type="audio/mpeg" />
+      Your browser does not support the audio element.
+    </audio>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+  </body>
+</html>
