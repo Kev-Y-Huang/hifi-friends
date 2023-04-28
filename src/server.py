@@ -7,7 +7,7 @@ import wave
 import pyaudio
 
 host_name = socket.gethostname()
-host_ip = '192.168.1.104'#  socket.gethostbyname(host_name)
+host_ip = 'localhost'#  socket.gethostbyname(host_name)
 print(host_ip)
 port = 9633
 
@@ -19,7 +19,7 @@ def audio_stream_UDP():
 
 	server_socket.bind((host_ip, (port)))
 	CHUNK = 10*1024
-	wf = wave.open("temp.wav.wav")
+	wf = wave.open("temp.wav")
 	p = pyaudio.PyAudio()
 	print('server listening at',(host_ip, (port)),wf.getframerate())
 	stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
