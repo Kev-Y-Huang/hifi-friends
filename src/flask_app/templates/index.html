@@ -21,7 +21,8 @@
       </form>
     </div>
     <div id="message"></div>
-    <form action="{{ url_for('play_song') }}" method="POST">
+    <h2 id="queueHeader">Songs in Library</h2>
+    <form action="{{ url_for('queue_song') }}" method="POST">
       <ul>
         {% for song in songs %}
         <li>
@@ -41,12 +42,21 @@
       <button type="submit">Add to queue</button>
     </form>
     <audio id="audioPlayer" controls>
-      <source src="{{ url_for('audio_stream') }}" type="audio/wav">
+      <source src="{{ url_for('stream_audio') }}" type="audio/wav" />
       Your browser does not support the audio element.
     </audio>
+    <h2 id="queueHeader">Queued to play</h2>
     <div id="queueContainer">
-      <h2>Queued to play</h2>
-      <ul id="queueList"></ul>
+      <ul>
+        {% for song in queue %}
+        <li>
+          <label for="song{{ loop.index }}">
+            <h3>{{ song.title }}</h3>
+            <p>{{ song.artist }} - {{ song.duration }}</p>
+          </label>
+        </li>
+        {% endfor %}
+      </ul>
     </div>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
   </body>

@@ -4,12 +4,10 @@ from flask import (
     request,
     Response
 )
-# import pyaudio
-
-app = Flask(__name__)
+import pyaudio
 
 # FORMAT = pyaudio.paInt16
-# CHANNELS = 2
+# CHANNELS = 1
 # RATE = 44100
 # CHUNK = 1024
 # RECORD_SECONDS = 5
@@ -22,6 +20,9 @@ app = Flask(__name__)
 #     input=True, 
 #     frames_per_buffer=CHUNK
 # )
+
+app = Flask(__name__)
+
  
 # Dummy list of songs
 songs = [
@@ -39,9 +40,22 @@ songs = [
     }
 ]
 
+
+# Dummy queue of songs
+queue = [
+    {
+        'title': 'Song 1',
+        'artist': 'Artist 1',
+        'duration': '3:45',
+        'audio_url': 'https://example.com/song1.mp3'
+    },
+]
+
+
 @app.route('/')
 def index():
-    return render_template('index.html', songs=songs)
+    return render_template('index.html', songs=songs, queue=queue)
+
 
 def get_updated_songs():
     '''
@@ -49,12 +63,14 @@ def get_updated_songs():
     '''
     pass
 
+
 @app.route('/update_songs', methods=['GET'])
 def update_songs():
     '''
     Flask route to update the list of songs
     '''
     pass
+
 
 @app.route('/upload_song', methods=['POST'])
 def upload_song():
@@ -71,18 +87,33 @@ def upload_song():
     # Return an error message if no file was uploaded
     return {'error': 'No song file uploaded.'}, 400
 
-# @app.route('/play_song')
-# def audio_stream():
-#     '''
-#     Stream song from the server
-#     '''
-#     def generate_audio():
-#         while True:
-#             audio_data = stream.read(1024)
-#             yield (b'--frame\r\n'
-#                    b'Content-Type: audio/wav\r\n\r\n' + audio_data + b'\r\n\r\n')
 
-#     return Response(generate_audio(), mimetype='multipart/x-mixed-replace; boundary=frame')
+@app.route('/queue_song')
+def queue_song():
+    '''
+    Add a song to the queue
+    '''
+    # Get the song id from the request
+    song_id = request.args.get('song_id')
+    # Get the song from the list of songs
+    song = songs[song_id]
+    # Add the song to the queue
+    # queue.add(song)
+    # Return a success message or relevant data
+
+@app.route('/stream_audio')
+def stream_audio():
+    '''
+    Stream song from the server
+    '''
+    # def generate_audio():
+    #     while True:
+    #         audio_data = stream.read(1024)
+    #         yield (b'--frame\r\n'
+    #                b'Content-Type: audio/wav\r\n\r\n' + audio_data + b'\r\n\r\n')
+
+    # return Response(generate_audio(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    pass
 
 if __name__ == '__main__':
     app.run(debug=True)
