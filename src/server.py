@@ -121,13 +121,14 @@ class Server:
                         procs.append(proc)
                     # Otherwise, read the data from the socket
                     else:
-                        data = sock.recv(1024)
-                        if data:
-                            sock.send("ping".encode(encoding='utf-8'))
-                        # If there is no data, then the connection has been closed
-                        else:
-                            sock.close()
-                            inputs.remove(sock)
+                        break # TODO pls fix
+                        # data = sock.recv(1024)
+                        # if data:
+                        #     sock.send("ping".encode(encoding='utf-8'))
+                        # # If there is no data, then the connection has been closed
+                        # else:
+                        #     sock.close()
+                        #     inputs.remove(sock)
         except Exception as e:
             print(e)
             for conn in inputs:

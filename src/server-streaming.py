@@ -33,7 +33,6 @@ def audio_stream_UDP():
 	while True:
 		msg,client_addr = server_socket.recvfrom(BUFF_SIZE)
 		print('[GOT connection from]... ',client_addr,msg)
-		return
 		DATA_SIZE = math.ceil(wf.getnframes()/CHUNK)
 		DATA_SIZE = str(DATA_SIZE).encode()
 		print('[Sending data size]...',wf.getnframes()/sample_rate)
