@@ -110,13 +110,13 @@ class Server:
                         procs.append(proc)
                     # If the socket is the server socket, accept as a connection
                     if sock == self.udp_sock:
-                        client, addr = sock.accept()
-                        inputs.append(client)
+                        _, addr = sock.recvfrom(BUFF_SIZE)
+                        inputs.append(sock) # TODO this is probably not right -\_(0_0)_/-
 
                         print(f'\n[+] UDP connected to {addr[0]} ({addr[1]})\n')
                         
                         # Start a new thread for each client
-                        proc = threading.Thread(target=self.on_new_udp_client, args=(client,addr,))
+                        proc = threading.Thread(target=self.on_new_udp_client, args=(sock,addr,))
                         proc.start()
                         procs.append(proc)
                     # Otherwise, read the data from the socket
