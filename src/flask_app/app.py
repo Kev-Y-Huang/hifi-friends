@@ -1,14 +1,28 @@
-import subprocess
-import os
-import inspect
 from flask import (
     Flask, 
     render_template, 
-    request
+    request,
+    Response
 )
+# import pyaudio
 
 app = Flask(__name__)
 
+# FORMAT = pyaudio.paInt16
+# CHANNELS = 2
+# RATE = 44100
+# CHUNK = 1024
+# RECORD_SECONDS = 5
+
+# audio = pyaudio.PyAudio()
+# stream = audio.open(
+#     format=FORMAT, 
+#     channels=CHANNELS, 
+#     rate=RATE, 
+#     input=True, 
+#     frames_per_buffer=CHUNK
+# )
+ 
 # Dummy list of songs
 songs = [
     {
@@ -22,33 +36,53 @@ songs = [
         'artist': 'Artist 2',
         'duration': '4:20',
         'audio_url': 'https://example.com/song2.mp3'
-    },
-    {
-        'title': 'Song 3',
-        'artist': 'Artist 3',
-        'duration': '2:55',
-        'audio_url': 'https://example.com/song3.mp3'
     }
 ]
-
-# def getSound(self):
-#     # Current chunk of audio data
-#     data = self.stream.read(self.CHUNK)
-#     self.frames.append(data)
-#     wave = self.save(list(self.frames))
-
-#     return data
-
 
 @app.route('/')
 def index():
     return render_template('index.html', songs=songs)
 
-@app.route('/play_song', methods=['POST'])
-def play_song():
-    selected_song = int(request.form['selected_song'])
-    song_url = songs[selected_song - 1]['audio_url']
-    return render_template('index.html', songs=songs, selected_song=selected_song, song_url=song_url)
+def get_updated_songs():
+    '''
+    Function to ping the server and get the updated list of songs
+    '''
+    pass
+
+@app.route('/update_songs', methods=['GET'])
+def update_songs():
+    '''
+    Flask route to update the list of songs
+    '''
+    pass
+
+@app.route('/upload_song', methods=['POST'])
+def upload_song():
+    '''
+    Flask route to upload a song to the server
+    '''
+    if 'file' in request.files:
+        file = request.files['file']
+        # Save the uploaded file to a desired location
+        file.save(f'./songs/{file}.wav')
+        # Return a success message or relevant data
+        return {'message': 'Song uploaded successfully.'}, 200
+
+    # Return an error message if no file was uploaded
+    return {'error': 'No song file uploaded.'}, 400
+
+# @app.route('/play_song')
+# def audio_stream():
+#     '''
+#     Stream song from the server
+#     '''
+#     def generate_audio():
+#         while True:
+#             audio_data = stream.read(1024)
+#             yield (b'--frame\r\n'
+#                    b'Content-Type: audio/wav\r\n\r\n' + audio_data + b'\r\n\r\n')
+
+#     return Response(generate_audio(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
     app.run(debug=True)
