@@ -8,6 +8,7 @@ import wave
 import pyaudio
 
 BUFF_SIZE = 65536
+CHUNK = 10*1024
 
 class Server:
     def __init__(self, tcp_port=1538, udp_port=1539):
@@ -49,8 +50,7 @@ class Server:
             self.recv_file(c_sock)
 
     
-    def on_new_udp_client(self, c_sock):
-        CHUNK = 10*1024
+    def on_new_udp_client(self, c_sock, addr):
         wf = wave.open("temp.wav")
         p = pyaudio.PyAudio()
         stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
@@ -62,17 +62,14 @@ class Server:
         data = None
         sample_rate = wf.getframerate()
         while True:
-            msg,client_addr = c_sock.recvfrom(BUFF_SIZE)
-            print('[GOT connection from]... ',client_addr,msg)
             DATA_SIZE = math.ceil(wf.getnframes()/CHUNK)
             DATA_SIZE = str(DATA_SIZE).encode()
             print('[Sending data size]...',wf.getnframes()/sample_rate)
-            c_sock.sendto(DATA_SIZE,client_addr)
+            c_sock.sendto(DATA_SIZE,addr)
             cnt=0
             while True:
-                
                 data = wf.readframes(CHUNK)
-                c_sock.sendto(data,client_addr)
+                c_sock.sendto(data,addr)
                 time.sleep(0.001) # Here you can adjust it according to how fast you want to send data keep it > 0
                 print(cnt)
                 if cnt >(wf.getnframes()/CHUNK):
@@ -89,7 +86,6 @@ class Server:
         print('\nServer started!')
 
         self.tcp_sock.listen(5)
-        self.udp_sock.listen(5)
 
         inputs = [self.tcp_sock, self.udp_sock]
         procs = []
@@ -120,7 +116,7 @@ class Server:
                         print(f'\n[+] UDP connected to {addr[0]} ({addr[1]})\n')
                         
                         # Start a new thread for each client
-                        proc = threading.Thread(target=self.on_new_udp_client, args=(client,))
+                        proc = threading.Thread(target=self.on_new_udp_client, args=(client,addr,))
                         proc.start()
                         procs.append(proc)
                     # Otherwise, read the data from the socket
