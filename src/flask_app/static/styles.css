@@ -97,3 +97,15 @@ audio {
   color: #FF0000;
   justify-content: center;
 }
+
+#queueContainer {
+  align-items: center;
+  justify-content: center;
+  display: flex;
+}
+
+#queueHeader {
+  align-items: center;
+  justify-content: center;
+  display: flex;
+}
