@@ -14,17 +14,24 @@
   </head>
   <body>
     <h1>HiFi-Friends</h1>
-    <h5 id="queueHeader">Only .wav files are allowed</h5>
+    <h5 id="queueHeader">
+      Only HIFI uncompressed .wav files are allowed! No compressed audio here.
+    </h5>
     <div id="uploadContainer">
-      <form id="uploadForm" enctype="multipart/form-data">
+      <form
+        id="uploadForm"
+        enctype="multipart/form-data"
+        action="/upload_song"
+        method="POST"
+      >
         <input type="file" id="fileInput" name="file" accept=".wav" />
         <button type="submit">Upload</button>
       </form>
     </div>
     <div id="message"></div>
     <h2 id="queueHeader">Songs in Library</h2>
-    <form action="{{ url_for('add_song_to_queue') }}" method="POST">
-      <ul>
+    <form action="/add_song_to_queue" method="POST">
+      <ul id="songList">
         {% for song in songs %}
         <li>
           <input
@@ -34,8 +41,7 @@
             value="{{ loop.index }}"
           />
           <label for="song{{ loop.index }}">
-            <h3>{{ song.title }}</h3>
-            <p>{{ song.artist }} - {{ song.duration }}</p>
+            <h3>{{ song }}</h3>
           </label>
         </li>
         {% endfor %}
@@ -46,23 +52,31 @@
         playing. Otherwise, the song will be added to the end of the queue.
       </h4>
     </form>
-    <audio id="audioPlayer" controls>
-      <source src="{{ url_for('stream_audio') }}" type="audio/wav" />
-      Your browser does not support the audio element.
-    </audio>
-    <h2 id="queueHeader">Queued to play</h2>
-    <div id="queueContainer">
-      <ul>
-        {% for song in queue %}
-        <li>
-          <label for="song{{ loop.index }}">
-            <h3>{{ song.title }}</h3>
-            <p>{{ song.artist }} - {{ song.duration }}</p>
-          </label>
-        </li>
-        {% endfor %}
-      </ul>
+    <div id="playQueueContainer">
+      <h2 id="playingHeader">Playing</h2>
+      <div id="playingContainer">
+        {% if queue|length > 0 %}
+        <label for="song1">
+          <h3>{{ queue[0] }}</h3>
+        </label>
+        {% else %}
+        <p>No song is currently playing.</p>
+        {% endif %}
+      </div>
+      <h2 id="queueHeader">Queue</h2>
+      <div id="queueContainer">
+        <ul>
+          {% for song in queue[1:] %}
+          <li>
+            <label for="song{{ loop.index }}">
+              <h3>{{ song }}</h3>
+            </label>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
     </div>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script src="{{ url_for('static', filename='stream_audio.js') }}"></script>
   </body>
 </html>

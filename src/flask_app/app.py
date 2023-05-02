@@ -7,37 +7,18 @@ from flask import (
 from utils import client
 import pyaudio
 import socket
+import os
 
 app = Flask(__name__)
 
 # newClient = client.Client()
 
 # Dummy list of songs
-songs = [
-    {
-        'title': 'Song 1',
-        'artist': 'Artist 1',
-        'duration': '3:45',
-        'audio_url': 'https://example.com/song1.mp3'
-    },
-    {
-        'title': 'Song 2',
-        'artist': 'Artist 2',
-        'duration': '4:20',
-        'audio_url': 'https://example.com/song2.mp3'
-    }
-]
+songs = os.listdir('server_files')
 
 
 # Dummy queue of songs
-queue = [
-    {
-        'title': 'Song 1',
-        'artist': 'Artist 1',
-        'duration': '3:45',
-        'audio_url': 'https://example.com/song1.mp3'
-    },
-]
+queue = []
 
 
 @app.route('/')
@@ -53,12 +34,12 @@ def get_updated_songs():
     return songs
 
 
-@app.route('/update_songs', methods=['GET'])
-def update_songs():
+@app.route('/get_songs', methods=['GET'])
+def get_songs():
     '''
     Flask route to update the list of songs, calls the get_updated_songs() function
     '''
-    pass
+    return songs
 
 
 @app.route('/upload_song', methods=['POST'])
@@ -69,13 +50,23 @@ def upload_song():
     if 'file' in request.files:
         file = request.files['file']
         # Save the uploaded file to a desired location
-        # file.save(f'./songs/{file}.wav')
-        file.save(f'./songs/{file.filename}.wav')
+        if file.filename in songs:
+            return {'error': 'Song already exists.'}, 400
+        file.save(f'server_files/{file.filename}')
+        songs.append(file.filename)
         # Return a success message or relevant data
         return {'message': 'Song uploaded successfully.'}, 200
 
     # Return an error message if no file was uploaded
     return {'error': 'No song file uploaded.'}, 400
+
+
+@app.route('/get_queue', methods=['GET'])
+def get_queue():
+    '''
+    Flask route to update the list of songs, calls the get_updated_songs() function
+    '''
+    return queue
 
 
 @app.route('/add_song_to_queue', methods=['POST'])
@@ -84,22 +75,15 @@ def add_song_to_queue():
     Add a song to the queue
     '''
     # Get the song id from the request
-    song_id = request.args.get('song_id')
-    # Get the song from the list of songs
-    if not song_id:
-        return {'error': 'No song id provided.'}, 400
-    print(song_id)
-    print(songs)
-    song = songs[song_id]
-    # Add the song to the queue
-    queue.add(song)
-    return {'message': 'Song added to queue successfully.'}, 200
+    selected_song_index = int(request.form.get('selected_song', -1))
+    if selected_song_index >= 0 and selected_song_index < len(songs):
+        selected_song = songs[selected_song_index]
+        # Add the selected song to the queue
+        # Your queue management code here
+        queue.append(selected_song)
+        return {'message': 'Song added to the queue.'}, 200
 
-
-# @app.route('/stream_audio')
-# def stream_audio():
-#     newClient.run_client(newClient)
-#     # return app.response_class(generate_audio, mimetype='audio/x-wav')
+    return {'error': 'Invalid song selection.'}, 400
 
 
 p = pyaudio.PyAudio()
@@ -112,32 +96,29 @@ stream = p.open(
 
 
 HOST = socket.gethostname() # Server IP address
-TCP_PORT = 1538  # Server port
+TCP_PORT = 1538 
 UDP_PORT = 1539
 
-BUFF_SIZE = 65536
-CHUNK = 10*1024
+BUFF_SIZE = 1024
+CHUNK = 1024
 
 @app.route('/stream_audio')
 def stream_audio():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
-        client_socket.connect((HOST, TCP_PORT))
-        print(f"Connected to server: {HOST}:{TCP_PORT}")
+    def generate_audio():
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+            client_socket.connect((HOST, TCP_PORT))
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
+            message = b'Hello'
+            client_socket.sendto(message, (HOST, UDP_PORT))
 
-        client_socket = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-        client_socket.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,BUFF_SIZE)
+            while True:
+                audio_data = client_socket.recv(BUFF_SIZE)
+                if not audio_data:
+                    break
+                yield audio_data
 
-        message = b'Hello'
-        client_socket.sendto(message,(HOST, UDP_PORT))
-
-        def generate_audio():
-                while True:
-                    audio_data = client_socket.recv(BUFF_SIZE)
-                    if not audio_data:
-                        break
-                    yield audio_data
-
-    return Response(generate_audio(), mimetype='audio/wav')
+    return Response(generate_audio(), mimetype='audio/x-wav')
     
 if __name__ == '__main__':
     app.run(debug=True)
