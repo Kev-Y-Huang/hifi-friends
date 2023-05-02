@@ -59,7 +59,7 @@ class Server:
         file_to_write.close()
 
         self.logger.info('File received successfully.')
-    
+
     def handle_tcp_client(self, c_sock):
         """
         Handle a TCP client connection.
@@ -76,30 +76,32 @@ class Server:
             # Continuously poll for messages while exit event has not been set
             while not self.exit.is_set():
                 # Use select.select to poll for messages
-                read_sockets, _, _ = select.select(inputs, [], [], 1)
+                read_sockets, _, _ = select.select(inputs, [], [], 0.1)
 
                 for sock in read_sockets:
-                    data = sock.recv(1)
-                    if data:
-                        opcode = data.decode()
-
-                        # If the opcode is 1, we are receiving a file
-                        if opcode == '1':
-                            self.logger.info('[1] Receiving file.')
-                            self.recv_file(sock)
-                        # TODO implement the rest of the opcodes
-                        # If the opcode is 2, we are queuing a file
-                        elif opcode == '2':
-                            self.logger.info('[1] Queuing file.')
-                    # If there is no data, we remove the connection
+                    if sock == c_sock:
+                        client, _ = sock.accept()
+                        inputs.append(client)
                     else:
-                        for sock in inputs:
-                            sock.close()
+                        data = sock.recv(1)
+                        if data:
+                            opcode = data.decode()
+
+                            # If the opcode is 1, we are receiving a file
+                            if opcode == '1':
+                                self.logger.info('[1] Receiving file.')
+                                self.recv_file(sock)
+                            # TODO implement the rest of the opcodes
+                            # If the opcode is 2, we are queuing a file
+                            elif opcode == '2':
+                                self.logger.info('[1] Queuing file.')
+                        # If there is no data, we remove the connection
+                        else:
+                            for sock in inputs:
+                                sock.close()
         except:
             for sock in inputs:
                 sock.close()
-
-        print("thread closed")
 
     def handle_udp_client(self, c_sock, addr):
         """
@@ -203,21 +205,16 @@ class Server:
                         procs.append(proc)
                     # Otherwise, read the data from the socket
                     else:
-                        break  # TODO pls fix
-                        # data = sock.recv(1024)
-                        # if data:
-                        #     sock.send("ping".encode(encoding='utf-8'))
-                        # # If there is no data, then the connection has been closed
-                        # else:
-                        #     sock.close()
-                        #     inputs.remove(sock)
-        except Exception as e:
-            print(e)
+                        # TODO pls fix
+                        sock.close()
+                        inputs.remove(sock)
+        except KeyboardInterrupt as e:
+            self.logger.info('Shutting down server.')
             self.exit.set()
             for proc in procs:
                 proc.join()
-            # for conn in inputs:
-            #     conn.close()
+            for conn in inputs:
+                conn.close()
 
 
 if __name__ == "__main__":
