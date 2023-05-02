@@ -118,13 +118,14 @@ class Client:
             while not self.exit.is_set():
                 time.sleep(0.1)
                 for frame in queue_rows(self.audio_q):
+                    if self.exit.is_set():
+                        break
                     stream.write(frame)
                     # print('[Queue size while playing]...',q.qsize(),'[Time remaining...]',round(DURATION),'seconds')
 
-        except:
+        finally:
             self.client_socket.close()
             print('Audio closed')
-            sys.exit(1)
 
     def run_client(self):
         """
