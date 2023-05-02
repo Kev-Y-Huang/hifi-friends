@@ -25,7 +25,8 @@ class Server:
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_sock.setsockopt(
             socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
-        self.uploaded_files = []
+        # get list of files in server_files
+        self.uploaded_files = os.listdir('server_files')
 
         self.logger = setup_logger()
         self.exit = threading.Event()
