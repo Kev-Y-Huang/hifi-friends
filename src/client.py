@@ -140,7 +140,12 @@ class Client:
                     break
                 elif op_code == '1':
                     file_path = input("Enter File Path: ")
-                    self.upload_file(file_path)
+                    # check if file path exists
+                    if os.path.exists(file_path):
+                        self.upload_file(file_path)
+                    else:
+                        print("File path does not exist. Unable to upload file")
+                        continue
                 elif op_code == '2':
                     filename = input("Enter Song Title: ")
                     self.queue_song(filename)

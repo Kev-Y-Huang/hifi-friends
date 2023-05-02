@@ -5,6 +5,7 @@ import socket
 import threading
 import time
 import wave
+import os
 
 import pyaudio
 
@@ -128,7 +129,11 @@ class Server:
                     elif opcode == 2:
                         self.logger.info('[2] Queuing next song.')
                         song_name = sock.recv(1024).decode()
-                        song = wave.open(f"server_files/{song_name}.wav")
+                        if os.path.exists(f"server_files/{song_name}"):
+                            song = wave.open(f"server_files/{song_name}")
+                        else:
+                            self.logger.error(f'File {song_name}.wav not found.')
+                            continue
                         self.song_queue.put(song)
                     # TODO implement the rest of the opcodes
                     elif opcode == 3:
@@ -157,9 +162,9 @@ class Server:
                             if song_name not in self.uploaded_files:
                                 self.logger.error(f'File {song_name} has not been uploaded or is in the processing of uploading. Queue failed.')
                                 continue
-                            try:
-                                song = wave.open(f"server_files/{song_name}.wav")
-                            except FileNotFoundError:
+                            if os.path.exists(f"server_files/{song_name}"):
+                                song = wave.open(f"server_files/{song_name}")
+                            else:
                                 self.logger.error(f'File {song_name} not found.')
                                 continue
                             self.song_queue.put(song)
