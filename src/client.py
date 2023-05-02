@@ -32,7 +32,7 @@ class Client:
 
         self.exit = threading.Event()
 
-        self.procs = []
+        self.audio_q = queue.Queue()
 
     def upload_file(self, file_path):
         """
@@ -77,7 +77,7 @@ class Client:
         """
         self.s.send(pack_opcode(2))
         self.s.send(filename.encode())
-        
+
         # Wait for server to respond
         message = self.s.recv(1024).decode()
         print(message)
@@ -87,6 +87,8 @@ class Client:
         Get audio data from the server.
         """
         inputs = [self.client_socket]
+        self.client_socket.sendto(b'0', (self.host, self.udp_port))
+
         while not self.exit.is_set():
             read_sockets, _, _ = select.select(inputs, [], [], 0.1)
             for sock in read_sockets:
@@ -97,34 +99,35 @@ class Client:
         """
         Stream audio from the server.
         """
+        p = pyaudio.PyAudio()
+        format = p.get_format_from_width(2)
         try:
-            p = pyaudio.PyAudio()
-            stream = p.open(format=p.get_format_from_width(2),
-                            channels=2,
-                            rate=48000,
-                            output=True,
-                            frames_per_buffer=CHUNK)
-
-            # TODO fix this monstrocity
-            self.client_socket.sendto(b'0', (self.host, self.udp_port))
-            self.audio_q = queue.Queue()
-
-            t1 = threading.Thread(
-                target=self.get_audio_data, args=())
-            t1.start()
-            self.procs.append(t1)
-
-            # print('[Now Playing]... Data',DATA_SIZE,'[Audio Time]:',DURATION ,'seconds')
             while not self.exit.is_set():
-                time.sleep(0.1)
+                if self.audio_q.empty():
+                    # TODO implement sending next song request
+                    self.s.send(pack_opcode(3))
+                    time.sleep(1)
+                    continue
+
+                print("Playing")
+                stream = p.open(format=format,
+                                channels=2,
+                                rate=48000,
+                                output=True,
+                                frames_per_buffer=CHUNK)
+
+                # TODO fix this monstrocity
                 for frame in queue_rows(self.audio_q):
                     if self.exit.is_set():
                         break
                     stream.write(frame)
-                    # print('[Queue size while playing]...',q.qsize(),'[Time remaining...]',round(DURATION),'seconds')
+                
+                stream.stop_stream()
+                stream.close()
 
         finally:
             self.client_socket.close()
+            p.terminate()
             print('Audio closed')
 
     def run_client(self):
@@ -135,7 +138,10 @@ class Client:
 
         stream_proc = threading.Thread(target=client.stream_audio, args=())
         stream_proc.start()
-        self.procs.append(stream_proc)
+
+        get_audio_data_proc = threading.Thread(
+            target=self.get_audio_data, args=())
+        get_audio_data_proc.start()
 
         try:
             while not self.exit.is_set():
@@ -158,8 +164,10 @@ class Client:
         finally:
             self.exit.set()
             print(self.exit.is_set())
-            for proc in self.procs:
-                proc.join()
+
+            stream_proc.join()
+            get_audio_data_proc.join()
+
             self.s.close()
             print('Client closed')
             sys.exit(1)

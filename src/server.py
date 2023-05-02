@@ -32,6 +32,7 @@ class Server:
         self.exit = threading.Event()
 
         self.song_queue = queue.Queue()
+        self.now_playing = queue.Queue()
 
         self.udp_addrs = []
 
@@ -96,6 +97,33 @@ class Server:
         self.logger.info('File received successfully.')
         self.uploaded_files.append(filename)
 
+    def enqueue_song(self, conn):
+        """
+        Enqueue a song to be played.
+        ...
+
+        Parameters
+        ----------
+        conn : socket.socket
+            The socket to receive the song name from.
+        
+        Returns
+        -------
+        str
+            A message to send back to the client.
+        """
+        song_name = conn.recv(1024).decode()
+        if song_name not in self.uploaded_files:
+            message = f'File {song_name} has not been uploaded or is in the processing of uploading. Queue failed.'
+            self.logger.error(message)
+        elif os.path.exists(f"server_files/{song_name}"):
+            self.song_queue.put(f"server_files/{song_name}")
+            message = 'Song queued.'
+        else:
+            message = f'File {song_name} not found.'
+            self.logger.error(message)
+        return message
+
     def handle_tcp_conn(self, conn):
         """
         Handle a TCP client connection.
@@ -129,21 +157,21 @@ class Server:
                         self.recv_file(sock)
                     # If the opcode is 2, we are queuing a file
                     elif opcode == 2:
-                        self.logger.info('[2] Queuing next song.')
-                        song_name = sock.recv(1024).decode()
-                        if song_name not in self.uploaded_files:
-                            message = f'File {song_name} has not been uploaded or is in the processing of uploading. Queue failed.'
-                            self.logger.error(message)
-                        if os.path.exists(f"server_files/{song_name}"):
-                            song = wave.open(f"server_files/{song_name}")
-                            self.song_queue.put(song)
-                            message = 'Song queued.'
-                        else:
-                            message = f'File {song_name} not found.'
-                            self.logger.error(message)
+                        self.logger.info('[2] Queuing song.')
+                        message = self.enqueue_song(sock)
                         conn.send(message.encode())
                     # TODO implement the rest of the opcodes
                     elif opcode == 3:
+                        self.logger.info('[3] Playing the next song.')
+                        if self.song_queue.empty():
+                            self.logger.error('No songs in queue.')
+                        else:
+                            song_path = self.song_queue.get()
+                            song = wave.open(song_path)
+                            self.now_playing.put(song)
+                            self.logger.info('Playing next song.')
+                    # TODO implement the rest of the opcodes
+                    elif opcode == 4:
                         self.logger.info('Need to finish implementation.')
                 # If there is no data, we remove the connection
                 else:
@@ -172,11 +200,13 @@ class Server:
         """
         Stream audio to the client.
         """
+        p = pyaudio.PyAudio()
+        format = p.get_format_from_width(song.getsampwidth())
+
         while not self.exit.is_set():
-            for song in queue_rows(self.song_queue):
+            for song in queue_rows(self.now_playing):
                 self.logger.info('Streaming audio.')
-                p = pyaudio.PyAudio()
-                stream = p.open(format=p.get_format_from_width(song.getsampwidth()),
+                stream = p.open(format=format,
                                 channels=song.getnchannels(),
                                 rate=song.getframerate(),  # TODO need to adjust for different sample rates
                                 input=True,
@@ -185,11 +215,9 @@ class Server:
                 # TODO just fix this :/
                 sample_rate = song.getframerate()
                 while not self.exit.is_set():
-                    DATA_SIZE = math.ceil(song.getnframes()/CHUNK)
-                    DATA_SIZE = str(DATA_SIZE).encode()
-                    self.logger.info(
-                        f'Sending data size {song.getnframes()/sample_rate}')
-                    self.send_to_all_udp_addrs(DATA_SIZE)
+                    self.logger.info(f'Sending sample rate {sample_rate}')
+                    sample_rate = str(sample_rate).encode()
+                    self.send_to_all_udp_addrs(sample_rate)
                     cnt = 0
                     while not self.exit.is_set():
                         data = song.readframes(CHUNK)
@@ -204,11 +232,12 @@ class Server:
                     break
                 stream.stop_stream()
                 stream.close()
-                p.terminate()
                 song.close()
                 # c_sock.close() was suggested by github copilot so idk if it's right
 
                 self.logger.info('Audio streamed successfully.')
+
+        p.terminate()
 
     def run_server(self):
         """
