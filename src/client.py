@@ -8,6 +8,7 @@ import time
 
 import pyaudio
 
+from utils import queue_rows
 from wire_protocol import pack_packet
 
 HOST = socket.gethostname()
@@ -24,6 +25,10 @@ class Client:
         self.host = host
         self.tcp_port = tcp_port
         self.udp_port = udp_port
+
+        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.client_socket.setsockopt(
+            socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
 
         self.exit = threading.Event()
 
@@ -56,8 +61,8 @@ class Client:
         self.s.send(filename.encode())
         print('Song Queued')
 
-    def getAudioData(self, client_socket):
-        inputs = [client_socket]
+    def getAudioData(self):
+        inputs = [self.client_socket]
         while not self.exit.is_set():
             read_sockets, _, _ = select.select(inputs, [], [], 0.1)
             for sock in read_sockets:
@@ -66,9 +71,6 @@ class Client:
 
     def stream_audio(self):
         try:
-            client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            client_socket.setsockopt(
-                socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
             p = pyaudio.PyAudio()
             stream = p.open(format=p.get_format_from_width(2),
                             channels=2,
@@ -76,33 +78,24 @@ class Client:
                             output=True,
                             frames_per_buffer=CHUNK)
 
-            # create socket
-            message = b'Hello'
-
             # TODO fix this monstrocity
-            client_socket.sendto(message, (self.host, self.udp_port))
-            DATA_SIZE, _ = client_socket.recvfrom(BUFF_SIZE)
-            DATA_SIZE = int(DATA_SIZE.decode())
-            self.audio_q = queue.Queue(maxsize=DATA_SIZE)
-            cnt = 0
+            self.client_socket.sendto(b'0', (self.host, self.udp_port))
+            self.audio_q = queue.Queue()
 
             t1 = threading.Thread(
-                target=self.getAudioData, args=(client_socket,))
+                target=self.getAudioData, args=())
             t1.start()
             self.procs.append(t1)
-            time.sleep(5)
-            DURATION = DATA_SIZE*CHUNK/48000
+
             # print('[Now Playing]... Data',DATA_SIZE,'[Audio Time]:',DURATION ,'seconds')
             while not self.exit.is_set():
-                frame = self.audio_q.get()
-                stream.write(frame)
-                # print('[Queue size while playing]...',q.qsize(),'[Time remaining...]',round(DURATION),'seconds')
-                DURATION -= CHUNK/48000
-                if self.audio_q.empty():
-                    break
+                time.sleep(0.1)
+                for frame in queue_rows(self.audio_q):
+                    stream.write(frame)
+                    # print('[Queue size while playing]...',q.qsize(),'[Time remaining...]',round(DURATION),'seconds')
 
         except:
-            client_socket.close()
+            self.client_socket.close()
             print('Audio closed')
             sys.exit(1)
 
