@@ -14,6 +14,7 @@
   </head>
   <body>
     <h1>HiFi-Friends</h1>
+    <h5 id="queueHeader">Only .wav files are allowed</h5>
     <div id="uploadContainer">
       <form id="uploadForm" enctype="multipart/form-data">
         <input type="file" id="fileInput" name="file" accept=".wav" />
@@ -22,7 +23,7 @@
     </div>
     <div id="message"></div>
     <h2 id="queueHeader">Songs in Library</h2>
-    <form action="{{ url_for('queue_song') }}" method="POST">
+    <form action="{{ url_for('add_song_to_queue') }}" method="POST">
       <ul>
         {% for song in songs %}
         <li>
@@ -39,7 +40,11 @@
         </li>
         {% endfor %}
       </ul>
-      <button type="submit">Add to queue</button>
+      <button id="addToQueueButton">Add to queue</button>
+      <h4 id="queueHeader">
+        If there are no songs in the queue, the song will automatically start
+        playing. Otherwise, the song will be added to the end of the queue.
+      </h4>
     </form>
     <audio id="audioPlayer" controls>
       <source src="{{ url_for('stream_audio') }}" type="audio/wav" />
