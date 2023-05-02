@@ -77,7 +77,10 @@ class Client:
         """
         self.s.send(pack_opcode(2))
         self.s.send(filename.encode())
-        print('Song Queued')
+        
+        # Wait for server to respond
+        message = self.s.recv(1024).decode()
+        print(message)
 
     def get_audio_data(self):
         """

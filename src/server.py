@@ -131,10 +131,12 @@ class Server:
                         song_name = sock.recv(1024).decode()
                         if os.path.exists(f"server_files/{song_name}"):
                             song = wave.open(f"server_files/{song_name}")
+                            self.song_queue.put(song)
+                            message = 'Song queued.'
                         else:
                             self.logger.error(f'File {song_name}.wav not found.')
-                            continue
-                        self.song_queue.put(song)
+                            message = 'File not found.'
+                        conn.send(message.encode())
                     # TODO implement the rest of the opcodes
                     elif opcode == 3:
                         self.logger.info('Need to finish implementation.')
