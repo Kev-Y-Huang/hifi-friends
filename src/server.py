@@ -24,6 +24,7 @@ class Server:
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_sock.setsockopt(
             socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
+        self.uploaded_files = []
 
         self.logger = setup_logger()
         self.exit = threading.Event()
@@ -76,7 +77,10 @@ class Server:
         chunksize = 4096
 
         self.logger.info('Receiving file: ' + filename)
-
+        if filename in self.uploaded_files:
+            self.logger.error(f'A file of the same name {filename} is already being uploaded. Upload canceled.')
+            return
+        
         while filesize > 0:
             if filesize < chunksize:
                 chunksize = filesize
@@ -87,6 +91,7 @@ class Server:
         file_to_write.close()
 
         self.logger.info('File received successfully.')
+        self.uploaded_files.append(filename)
 
     def handle_tcp_conn(self, conn):
         """
@@ -130,8 +135,41 @@ class Server:
                         self.logger.info('Need to finish implementation.')
                 # If there is no data, we remove the connection
                 else:
-                    sock.close()
-                    inputs.remove(sock)
+                    # TODO pls fix
+                    data = sock.recv(1)
+                    # If there is data, we unpack the opcode
+                    if data:
+                        # TODO implement better opcode handling
+                        opcode = unpack_opcode(data)
+
+                        # If the opcode is 0, we are receiving a closure request
+                        if opcode == 0:
+                            self.logger.info('[0] Receiving client closure request.')
+                            self.recv_file(sock)
+                        # If the opcode is 1, we are receiving a file
+                        elif opcode == 1:
+                            self.logger.info('[1] Receiving audio file.')
+                            self.recv_file(sock)
+                        # If the opcode is 2, we are queuing a file
+                        elif opcode == 2:
+                            self.logger.info('[2] Queuing next song.')
+                            song_name = sock.recv(1024).decode()
+                            if song_name not in self.uploaded_files:
+                                self.logger.error(f'File {song_name} has not been uploaded or is in the processing of uploading. Queue failed.')
+                                continue
+                            try:
+                                song = wave.open(f"server_files/{song_name}.wav")
+                            except FileNotFoundError:
+                                self.logger.error(f'File {song_name} not found.')
+                                continue
+                            self.song_queue.put(song)
+                        # TODO implement the rest of the opcodes
+                        elif opcode == 3:
+                            self.logger.info('Need to finish implementation.')
+                    # If there is no data, we remove the connection
+                    else:
+                        sock.close()
+                        inputs.remove(sock)
         except Exception as e:
             self.logger.exception(e)
         finally:
