@@ -7,6 +7,8 @@ import wave
 
 import pyaudio
 
+from utils import setup_logger
+
 BUFF_SIZE = 65536
 CHUNK = 10*1024
 
@@ -18,36 +20,59 @@ class Server:
         self.tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.udp_sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         self.udp_sock.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,BUFF_SIZE)
-    
-    # Receive a single file upload from client
-    def recv_file(self, c_sock):
-        size = c_sock.recv(16).decode() 
-        size = int(size, 2)
 
-        if not size:
-            return
-
-        filename = c_sock.recv(size).decode()
-        filesize = c_sock.recv(32).decode()
-        filesize = int(filesize, 2)
-
-        file_to_write = open('server_files/' + filename, 'wb')
-        chunksize = 4096
-
-        while filesize > 0:
-            if filesize < chunksize:
-                chunksize = filesize
-            data = c_sock.recv(chunksize)
-            file_to_write.write(data)
-            filesize -= len(data)
-
-        file_to_write.close()
-        print('File received successfully')
+        self.logger = setup_logger()
+        self.exit = threading.Event()
 
     
     def on_new_tcp_client(self, c_sock):
-        while True:
-            self.recv_file(c_sock)
+        inputs = [c_sock]
+
+        try:
+            # Continuously poll for messages while exit event has not been set
+            while not self.exit.is_set():
+                # Use select.select to poll for messages
+                read_sockets, _, _ = select.select(inputs, [], [], 1)
+
+                for sock in read_sockets:
+                    # If the socket is the server socket, accept as a connection
+                    if sock == c_sock:
+                        data = sock.recv(16)
+                        if data:
+                            size = data.decode() 
+                            size = int(size, 2)
+
+                            # if not size:
+                            #     return
+
+                            filename = c_sock.recv(size).decode()
+                            filesize = c_sock.recv(32).decode()
+                            filesize = int(filesize, 2)
+
+                            file_to_write = open('server_files/' + filename, 'wb')
+                            chunksize = 4096
+
+                            self.logger.info('Receiving file: ' + filename)
+
+                            while filesize > 0:
+                                if filesize < chunksize:
+                                    chunksize = filesize
+                                data = c_sock.recv(chunksize)
+                                file_to_write.write(data)
+                                filesize -= len(data)
+
+                            file_to_write.close()
+
+                            self.logger.info('File received successfully.')
+                        # If there is no data, we remove the connection
+                        else:
+                            for sock in inputs:
+                                sock.close()
+        except:
+            for sock in inputs:
+                sock.close()
+
+        print("thread closed")
 
     
     def on_new_udp_client(self, c_sock, addr):
@@ -61,39 +86,49 @@ class Server:
 
         data = None
         sample_rate = wf.getframerate()
-        while True:
+        while not self.exit.is_set():
             DATA_SIZE = math.ceil(wf.getnframes()/CHUNK)
             DATA_SIZE = str(DATA_SIZE).encode()
-            print('[Sending data size]...',wf.getnframes()/sample_rate)
+            self.logger.info(f'Sending data size {wf.getnframes()/sample_rate}')
             c_sock.sendto(DATA_SIZE,addr)
             cnt=0
             while True:
                 data = wf.readframes(CHUNK)
                 c_sock.sendto(data,addr)
                 time.sleep(0.001) # Here you can adjust it according to how fast you want to send data keep it > 0
-                print(cnt)
+                
                 if cnt >(wf.getnframes()/CHUNK):
                     break
                 cnt+=1
 
             break
-        print('SENT...')
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+        wf.close()
+        # c_sock.close() was suggested by github copilot so idk if it's right
+
+        self.logger.info('Audio streamed successfully.')
     
-    def start_server(self):
+    def run_server(self):
+        self.logger.info('Server started!')
+
+        # Bind tcp and udp sockets to ports
         self.tcp_sock.bind((socket.gethostname(), self.tcp_port))
         self.udp_sock.bind((socket.gethostname(), self.udp_port))
 
-        print('\nServer started!')
-
+        # Listen for incoming connections
         self.tcp_sock.listen(5)
 
+        # Create a list of sockets to listen to
         inputs = [self.tcp_sock, self.udp_sock]
+
+        # Create a list of threads
         procs = []
 
-        print('\nWaiting for incoming connections...')
-        self.server_running = True
+        self.logger.info('Waiting for incoming connections')
         try:
-            while self.server_running:
+            while not self.exit.is_set():
                 read_sockets, _, _ = select.select(inputs, [], [], 0.1)
 
                 for sock in read_sockets:
@@ -102,7 +137,7 @@ class Server:
                         client, addr = sock.accept()
                         inputs.append(client)
 
-                        print(f'\n[+] TCP connected to {addr[0]} ({addr[1]})\n')
+                        self.logger.info(f'[+] TCP connected to {addr[0]} ({addr[1]})')
 
                         # Start a new thread for each client
                         proc = threading.Thread(target=self.on_new_tcp_client, args=(client,))
@@ -113,7 +148,7 @@ class Server:
                         _, addr = sock.recvfrom(BUFF_SIZE)
                         inputs.append(sock) # TODO this is probably not right -\_(0_0)_/-
 
-                        print(f'\n[+] UDP connected to {addr[0]} ({addr[1]})\n')
+                        self.logger.info(f'[+] UDP connected to {addr[0]} ({addr[1]})')
                         
                         # Start a new thread for each client
                         proc = threading.Thread(target=self.on_new_udp_client, args=(sock,addr,))
@@ -131,26 +166,16 @@ class Server:
                         #     inputs.remove(sock)
         except Exception as e:
             print(e)
-            for conn in inputs:
-                conn.close()
-            for proc in procs:
-                proc.shutdown()
+            self.exit.set()
             for proc in procs:
                 proc.join()
-
-        # while True:
-        #     c_sock, addr = self.tcp_sock.accept()
-
-        #     print(f'\n[+] Connected to {addr[0]} ({addr[1]})\n')
-
-        #     # Start a new thread for each client
-        #     t = threading.Thread(target=self.on_new_client, args=(c_sock,))
-        #     t.start()
+            # for conn in inputs:
+            #     conn.close()
 
 
 if __name__ == "__main__":
     server = Server()
-    server.start_server()
+    server.run_server()
 
 
 
