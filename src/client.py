@@ -144,6 +144,8 @@ class Client:
                 elif op_code == '2':
                     filename = input("Enter Song Title: ")
                     self.queue_song(filename)
+        except Exception as e:
+            print(e)
         finally:
             self.exit.set()
             print(self.exit.is_set())

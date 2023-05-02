@@ -204,7 +204,6 @@ class Server:
                 # If the socket is the server socket, accept as a connection
                 if sock == self.tcp_sock:
                     conn, addr = sock.accept()
-                    inputs.append(conn)
 
                     self.logger.info(
                         f'[+] TCP connected to {addr[0]} ({addr[1]})')
@@ -215,10 +214,8 @@ class Server:
                     proc.start()
                     procs.append(proc)
                 # If the socket is the server socket, accept as a connection
-                if sock == self.udp_sock:
+                elif sock == self.udp_sock:
                     _, addr = sock.recvfrom(BUFF_SIZE)
-                    # TODO this is probably not right for UDP connection -\_(0_0)_/-
-                    inputs.append(sock)
 
                     self.logger.info(
                         f'[+] UDP connected to {addr[0]} ({addr[1]})')
@@ -231,9 +228,12 @@ class Server:
                 # Otherwise, read the data from the socket
                 else:
                     # TODO pls fix
-                    print("shrug")
-                    # sock.close()
-                    # inputs.remove(sock)
+                    data = sock.recv(1024)
+                    if data:
+                        self.logger.info(f'Received data: {data}')
+                    else:
+                        sock.close()
+                        inputs.remove(sock)
         except KeyboardInterrupt as e:
             self.logger.info('Shutting down server.')
             self.exit.set()
