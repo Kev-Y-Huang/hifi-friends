@@ -30,6 +30,8 @@ class Server:
 
         self.song_queue = queue.Queue()
 
+        self.udp_addrs = []
+
     def poll_read_sock_no_exit(self, inputs, timeout=0.1):
         """
         Generator that polls the read sockets while the exit event is not set.
@@ -86,60 +88,76 @@ class Server:
 
         self.logger.info('File received successfully.')
 
-    def handle_tcp_conn(self, conn):
+    def handle_tcp_conn(self):
         """
         Handle a TCP client connection.
-        ...
-
-        Parameters
-        ----------
-        conn : socket.socket
-            The socket to handle.
         """
-        inputs = [conn]
+        inputs = [self.tcp_sock]
 
+        self.logger.info('Waiting for incoming TCP connections.')
         try:
             for sock in self.poll_read_sock_no_exit(inputs):
-                data = sock.recv(1)
-                
-                # If there is data, we unpack the opcode
-                if data:
-                    # TODO implement better opcode handling
-                    opcode = unpack_opcode(data)
+                # If the socket is the server socket, accept as a connection
+                if sock == self.tcp_sock:
+                    conn, addr = sock.accept()
+                    inputs.append(conn)
 
-                    # If the opcode is 1, we are receiving a file
-                    if opcode == 1:
-                        self.logger.info('[1] Receiving audio file.')
-                        self.recv_file(sock)
-                    # If the opcode is 2, we are queuing a file
-                    elif opcode == 2:
-                        self.logger.info('[2] Queuing next song.')
-                        song_name = sock.recv(1024).decode()
-                        song = wave.open(f"server_files/{song_name}.wav")
-                        self.song_queue.put(song)
-                    # TODO implement the rest of the opcodes
-                    elif opcode == 3:
-                        self.logger.info('Need to finish implementation.')
-                # If there is no data, we remove the connection
+                    self.logger.info(
+                        f'[+] TCP connected to {addr[0]} ({addr[1]})')
+                # Otherwise, read the data from the socket
                 else:
-                    sock.close()
-                    inputs.remove(sock)
+                    # TODO pls fix
+                    data = sock.recv(1)
+                    # If there is data, we unpack the opcode
+                    if data:
+                        # TODO implement better opcode handling
+                        opcode = unpack_opcode(data)
+
+                        # If the opcode is 0, we are receiving a closure request
+                        if opcode == 0:
+                            self.logger.info('[0] Receiving client closure request.')
+                            self.recv_file(sock)
+                        # If the opcode is 1, we are receiving a file
+                        elif opcode == 1:
+                            self.logger.info('[1] Receiving audio file.')
+                            self.recv_file(sock)
+                        # If the opcode is 2, we are queuing a file
+                        elif opcode == 2:
+                            self.logger.info('[2] Queuing next song.')
+                            song_name = sock.recv(1024).decode()
+                            song = wave.open(f"server_files/{song_name}.wav")
+                            self.song_queue.put(song)
+                        # TODO implement the rest of the opcodes
+                        elif opcode == 3:
+                            self.logger.info('Need to finish implementation.')
+                    # If there is no data, we remove the connection
+                    else:
+                        sock.close()
+                        inputs.remove(sock)
         except Exception as e:
             self.logger.exception(e)
-            for sock in inputs:
-                sock.close()
+        finally:
+            self.logger.info('Shutting down TCP handler.')
+            self.exit.set()
+            for conn in inputs:
+                conn.close()
 
-    def handle_udp_conn(self, conn, addr):
+    def send_to_all_udp_addrs(self, data):
         """
-        Handle a UDP client connection.
+        Send data to all UDP addresses.
         ...
 
         Parameters
         ----------
-        conn : socket.socket
-            The socket to handle.
-        addr : tuple
-            The address of the client.
+        data : bytes
+            The data to send.
+        """
+        for addr in self.udp_addrs:
+            self.udp_sock.sendto(data, addr)
+    
+    def stream_audio(self):
+        """
+        Stream audio to the client.
         """
         while not self.exit.is_set():
             for song in queue_rows(self.song_queue):
@@ -158,11 +176,11 @@ class Server:
                     DATA_SIZE = str(DATA_SIZE).encode()
                     self.logger.info(
                         f'Sending data size {song.getnframes()/sample_rate}')
-                    conn.sendto(DATA_SIZE, addr)
+                    self.send_to_all_udp_addrs(DATA_SIZE)
                     cnt = 0
                     while not self.exit.is_set():
                         data = song.readframes(CHUNK)
-                        conn.sendto(data, addr)
+                        self.send_to_all_udp_addrs(data)
                         # Here you can adjust it according to how fast you want to send data keep it > 0
                         time.sleep(0.001)
 
@@ -179,6 +197,39 @@ class Server:
 
                 self.logger.info('Audio streamed successfully.')
 
+    def handle_udp_conn(self):
+        """
+        Handle a UDP client connection.
+        """
+        inputs = [self.udp_sock]
+
+        self.logger.info('Waiting for incoming UDP connections')
+        try:
+            for sock in self.poll_read_sock_no_exit(inputs):
+                # If the socket is the server socket, accept as a connection
+                if sock == self.udp_sock:
+                    _, addr = sock.recvfrom(BUFF_SIZE)
+
+                    self.logger.info(
+                        f'[+] UDP connected to {addr[0]} ({addr[1]})')
+                    
+                    self.udp_addrs.append(addr)
+                # Otherwise, read the data from the socket
+                else:
+                    # TODO pls fix
+                    data = sock.recv(1024)
+                    if data:
+                        self.logger.info(f'Received data: {data}')
+                    else:
+                        sock.close()
+                        inputs.remove(sock)
+        except Exception as e:
+            self.logger.exception(e)
+        finally:
+            self.logger.info('Shutting down UDP handler.')
+            self.exit.set()
+            self.udp_sock.close()
+    
     def run_server(self):
         """
         Run the server.
@@ -192,55 +243,23 @@ class Server:
         # Listen for incoming connections
         self.tcp_sock.listen(5)
 
-        # Create a list of sockets to listen to
-        inputs = [self.tcp_sock, self.udp_sock]
+        tcp_proc = threading.Thread(target=self.handle_tcp_conn, args=())
+        tcp_proc.start()
+        udp_proc = threading.Thread(target=self.handle_udp_conn, args=())
+        udp_proc.start()
+        stream_proc = threading.Thread(target=self.stream_audio, args=())
+        stream_proc.start()
 
-        # Create a list of threads
-        procs = []
-
-        self.logger.info('Waiting for incoming connections')
         try:
-            for sock in self.poll_read_sock_no_exit(inputs):
-                # If the socket is the server socket, accept as a connection
-                if sock == self.tcp_sock:
-                    conn, addr = sock.accept()
-
-                    self.logger.info(
-                        f'[+] TCP connected to {addr[0]} ({addr[1]})')
-
-                    # Start a new thread for each connection
-                    proc = threading.Thread(
-                        target=self.handle_tcp_conn, args=(conn,))
-                    proc.start()
-                    procs.append(proc)
-                # If the socket is the server socket, accept as a connection
-                elif sock == self.udp_sock:
-                    _, addr = sock.recvfrom(BUFF_SIZE)
-
-                    self.logger.info(
-                        f'[+] UDP connected to {addr[0]} ({addr[1]})')
-
-                    # Start a new thread for each connection
-                    proc = threading.Thread(
-                        target=self.handle_udp_conn, args=(sock, addr,))
-                    proc.start()
-                    procs.append(proc)
-                # Otherwise, read the data from the socket
-                else:
-                    # TODO pls fix
-                    data = sock.recv(1024)
-                    if data:
-                        self.logger.info(f'Received data: {data}')
-                    else:
-                        sock.close()
-                        inputs.remove(sock)
+            while True:
+                pass
         except KeyboardInterrupt as e:
             self.logger.info('Shutting down server.')
             self.exit.set()
-            for proc in procs:
-                proc.join()
-            for conn in inputs:
-                conn.close()
+            
+            tcp_proc.join()
+            udp_proc.join()
+            stream_proc.join()
 
 
 if __name__ == "__main__":
