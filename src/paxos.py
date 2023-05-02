@@ -3,6 +3,7 @@ import time
 from wire_protocol import pack_packet
 from machines import MACHINES, get_other_machines, get_other_machines_ids
 from collections import defaultdict
+from utils import upload_file
 
 
 class PaxServer:
@@ -112,3 +113,16 @@ class Paxos:
         else:
             # TODO perform actual operation
             proposer_conn.send(pack_packet(self.server_id,  self.gen_number, 11, "accept"))
+
+    def commit_op(self, filename, operation):
+        if operation == "upload":
+            print(self.machines)
+            for server_id in self.machines:
+                server = self.machines[server_id]
+                print(server_id)
+                if not server.accepted:
+                    print('upload attempt')
+                    print(f'server_{self.server_id}_files/{filename}')
+                    upload_file(server.conn, f'server_{self.server_id}_files/{filename}')
+
+

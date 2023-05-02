@@ -7,7 +7,7 @@ import wave
 import argparse
 import sys
 
-from music_service import Chat, User
+from music_service import User
 
 import pyaudio
 import logging
@@ -52,53 +52,31 @@ class Server:
         self.lockReady = threading.Lock()
         self.server_running = True
         self.filename = None
-
-    # def handle_promise(self):
-
+        self.operation = None
 
     def initiate_paxos(self):
         print("paxos initiated")
         self.paxos.send_prepare()
-        # self.clock, self.gen_number = send_prepare(self.machine_socks, self.clock, self.server_id)
         # Wait for servers to send back promise messages
         time.sleep(1)
-        # check for consensus
-        # responses = sum(1 for value in self.promise_responses.values() if value == self.gen_number)
-        #
-        # while not paxos.quorum_reached:
-        #     # Quorum has been reached, send accept message to all servers
-        #     if responses > len(paxos.servers) // 2:
-        #         paxos.quorum_reached = True
-        #         paxos.send_accept()
-        #
-        #     # All servers have responded, and a quorum has not been reached
-        #     elif None not in paxos.promise_responses.values():
-        #         # After sleeping, resend prepares with higher generation number
-        #         time.sleep(1)
-        #         paxos.send_prepare()
-        #
-        # paxos.send_accept()
-        # # Wait for servers to send back accept responses
-        # time.sleep(1)
-        #
-        #
-        # # paxos send
-        # self.broadcast_update(self, )
+
+
 
     # Receive a single file upload from client
     def recv_file(self, c_sock):
         size = c_sock.recv(16).decode()
         size = int(size, 2)
 
+
         if not size:
             return
-
-        self.initiate_paxos()
-
         filename = c_sock.recv(size).decode()
-        self.filename = filename
         filesize = c_sock.recv(32).decode()
         filesize = int(filesize, 2)
+
+        self.filename = filename
+        self.operation = 'upload'
+
 
         file_to_write = open(f'server_{self.server_id}_files/' + filename, 'wb')
         chunksize = 4096
@@ -112,11 +90,10 @@ class Server:
 
         file_to_write.close()
         print('File received successfully')
+        # self.initiate_paxos()
 
     def on_new_tcp_client(self, conn):
         curr_user = User(conn)
-
-
         inputs = [conn]
 
         try:
@@ -179,6 +156,8 @@ class Server:
                 if op_code == 11:
                     if contents == 'accept':
                         print('committing operation')
+                        self.paxos.commit_op(self.filename, "upload")
+
 
 
     def listen_internal(self):
