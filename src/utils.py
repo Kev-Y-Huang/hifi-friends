@@ -35,9 +35,17 @@ def setup_logger(level: int = logging.INFO) -> logging.Logger:
 class read_from_q:
     def __init__(self, q, block=False, timeout=None):
         """
-         :param Queue.Queue q:
-         :param bool block:
-         :param timeout:
+        Context manager for reading from a queue.
+        ...
+
+        Parameters
+        ----------
+        q : Queue.Queue
+            The queue to read from.
+        block : bool
+            Whether to block until an item is available.
+        timeout : int
+            The timeout for blocking.
         """
         self.q = q
         self.block = block
@@ -52,9 +60,22 @@ class read_from_q:
 
 def queue_rows(q, block=False, timeout=None):
     """
-     :param Queue.Queue q:
-     :param bool block:
-     :param int timeout:
+    Generator that yields rows from a queue.
+    ...
+
+    Parameters
+    ----------
+    q : Queue.Queue
+        The queue to read from.
+    block : bool
+        Whether to block until an item is available.
+    timeout : int
+        The timeout for blocking.
+    
+    Yields
+    ------
+    list
+        A row from the queue.
     """
     while not q.empty():
         with read_from_q(q, block, timeout) as row:

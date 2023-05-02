@@ -35,6 +35,15 @@ class Client:
         self.procs = []
 
     def upload_file(self, file_path):
+        """
+        Upload a file to the server.
+        ...
+
+        Parameters
+        ----------
+        file_path : str
+            The path to the file to upload.
+        """
         self.s.send(pack_opcode(1))
         filename = os.path.basename(file_path)
         size = len(filename)
@@ -57,11 +66,23 @@ class Client:
         print('File Sent')
 
     def queue_song(self, filename):
+        """
+        Queue a song to be played by the server.
+        ...
+
+        Parameters
+        ----------
+        filename : str
+            The name of the file to queue.
+        """
         self.s.send(pack_opcode(2))
         self.s.send(filename.encode())
         print('Song Queued')
 
-    def getAudioData(self):
+    def get_audio_data(self):
+        """
+        Get audio data from the server.
+        """
         inputs = [self.client_socket]
         while not self.exit.is_set():
             read_sockets, _, _ = select.select(inputs, [], [], 0.1)
@@ -70,6 +91,9 @@ class Client:
                 self.audio_q.put(frame)
 
     def stream_audio(self):
+        """
+        Stream audio from the server.
+        """
         try:
             p = pyaudio.PyAudio()
             stream = p.open(format=p.get_format_from_width(2),
@@ -83,7 +107,7 @@ class Client:
             self.audio_q = queue.Queue()
 
             t1 = threading.Thread(
-                target=self.getAudioData, args=())
+                target=self.get_audio_data, args=())
             t1.start()
             self.procs.append(t1)
 
@@ -100,6 +124,9 @@ class Client:
             sys.exit(1)
 
     def run_client(self):
+        """
+        Run the client.
+        """
         self.s.connect((self.host, self.tcp_port))
 
         stream_proc = threading.Thread(target=client.stream_audio, args=())
