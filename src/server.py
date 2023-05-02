@@ -63,11 +63,11 @@ class Server:
             The socket to receive the file from.
         """
         # TODO use specific wire protocol for file transfer
-        filename_size = c_sock.recv(16)
+        filename_size = c_sock.recv(16).decode()
         filename_size = int(filename_size, 2)
 
-        filename = c_sock.recv(filename_size)
-        filesize = c_sock.recv(32)
+        filename = c_sock.recv(filename_size).decode()
+        filesize = c_sock.recv(32).decode()
         filesize = int(filesize, 2)
 
         file_to_write = open('server_files/' + filename, 'wb')
