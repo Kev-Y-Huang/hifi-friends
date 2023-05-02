@@ -127,7 +127,7 @@ class Server:
                     elif opcode == 1:
                         self.logger.info('[1] Receiving audio file.')
                         self.recv_file(sock)
-                    # If the opcode is 2, we are queuing a file
+                    # If the opcode is 2, we are queueing a file
                     elif opcode == 2:
                         self.logger.info('[2] Queuing next song.')
                         song_name = sock.recv(1024).decode()
@@ -142,8 +142,12 @@ class Server:
                             message = f'File {song_name} not found.'
                             self.logger.error(message)
                         conn.send(message.encode())
-                    # TODO implement the rest of the opcodes
+                    # If the opcode is 3, we are sending the list of available songs
                     elif opcode == 3:
+                        message = '- ' + '\n- '.join(self.uploaded_files)
+                        conn.send(message.encode())
+                    # TODO implement the rest of the opcodes
+                    elif opcode == 4:
                         self.logger.info('Need to finish implementation.')
                 # If there is no data, we remove the connection
                 else:

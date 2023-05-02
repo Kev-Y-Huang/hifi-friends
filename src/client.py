@@ -82,6 +82,16 @@ class Client:
         message = self.s.recv(1024).decode()
         print(message)
 
+    def get_song_list(self):
+        """
+        Gets the available songs for queueing from the server and prints them.
+        """
+        self.s.send(pack_opcode(3))
+
+        # Wait for server to respond
+        message = self.s.recv(1024).decode()
+        print(message)
+
     def get_audio_data(self):
         """
         Get audio data from the server.
@@ -153,6 +163,8 @@ class Client:
                 elif op_code == '2':
                     filename = input("Enter Song Title: ")
                     self.queue_song(filename)
+                elif op_code == '3':
+                    self.get_song_list()
         except Exception as e:
             print(e)
         finally:
