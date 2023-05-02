@@ -9,7 +9,7 @@ import wave
 import pyaudio
 
 from utils import queue_rows, setup_logger
-from wire_protocol import unpack_packet
+from wire_protocol import unpack_opcode
 
 BUFF_SIZE = 65536
 CHUNK = 10*1024
@@ -85,7 +85,7 @@ class Server:
                 for sock in read_sockets:
                     data = sock.recv(1)
                     if data:
-                        opcode = unpack_packet(data)
+                        opcode = unpack_opcode(data)
 
                         # If the opcode is 1, we are receiving a file
                         if opcode == 1:

@@ -9,7 +9,7 @@ import time
 import pyaudio
 
 from utils import queue_rows
-from wire_protocol import pack_packet
+from wire_protocol import pack_opcode
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -35,7 +35,7 @@ class Client:
         self.procs = []
 
     def upload_file(self, file_path):
-        self.s.send(pack_packet(1))
+        self.s.send(pack_opcode(1))
         filename = os.path.basename(file_path)
         size = len(filename)
         # encode filename size as 16 bit binary, limit your filename length to 255 bytes
@@ -57,7 +57,7 @@ class Client:
         print('File Sent')
 
     def queue_song(self, filename):
-        self.s.send(pack_packet(2))
+        self.s.send(pack_opcode(2))
         self.s.send(filename.encode())
         print('Song Queued')
 
