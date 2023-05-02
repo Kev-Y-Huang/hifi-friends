@@ -8,12 +8,15 @@ import time
 
 import pyaudio
 
+from wire_protocol import pack_packet
+
 HOST = socket.gethostname()
 TCP_PORT = 1538
 UDP_PORT = 1539
 
 BUFF_SIZE = 65536
 CHUNK = 10*1024
+
 
 class Client:
     def __init__(self, host=HOST, tcp_port=TCP_PORT, udp_port=UDP_PORT):
@@ -27,15 +30,18 @@ class Client:
         self.procs = []
 
     def upload_file(self, file_path):
+        self.s.send(pack_packet(1))
         filename = os.path.basename(file_path)
         size = len(filename)
-        size = bin(size)[2:].zfill(16) # encode filename size as 16 bit binary, limit your filename length to 255 bytes
+        # encode filename size as 16 bit binary, limit your filename length to 255 bytes
+        size = bin(size)[2:].zfill(16)
 
         self.s.send(size.encode())
         self.s.send(filename.encode())
 
         filesize = os.path.getsize(file_path)
-        filesize = bin(filesize)[2:].zfill(32) # encode filesize as 32 bit binary
+        # encode filesize as 32 bit binary
+        filesize = bin(filesize)[2:].zfill(32)
         self.s.send(filesize.encode())
 
         file_to_send = open(file_path, 'rb')
@@ -45,34 +51,43 @@ class Client:
         file_to_send.close()
         print('File Sent')
 
+    def queue_song(self, filename):
+        self.s.send(pack_packet(2))
+        self.s.send(filename.encode())
+        print('Song Queued')
+
     def getAudioData(self, client_socket):
         inputs = [client_socket]
         while not self.exit.is_set():
             read_sockets, _, _ = select.select(inputs, [], [], 0.1)
             for sock in read_sockets:
-                frame,_= sock.recvfrom(BUFF_SIZE)
+                frame, _ = sock.recvfrom(BUFF_SIZE)
                 self.audio_q.put(frame)
 
     def stream_audio(self):
         try:
-            client_socket = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-            client_socket.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,BUFF_SIZE)
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            client_socket.setsockopt(
+                socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
             p = pyaudio.PyAudio()
             stream = p.open(format=p.get_format_from_width(2),
                             channels=2,
                             rate=48000,
                             output=True,
                             frames_per_buffer=CHUNK)
-                            
+
             # create socket
             message = b'Hello'
-            client_socket.sendto(message,(self.host,self.udp_port))
-            DATA_SIZE,_= client_socket.recvfrom(BUFF_SIZE)
+
+            # TODO fix this monstrocity
+            client_socket.sendto(message, (self.host, self.udp_port))
+            DATA_SIZE, _ = client_socket.recvfrom(BUFF_SIZE)
             DATA_SIZE = int(DATA_SIZE.decode())
             self.audio_q = queue.Queue(maxsize=DATA_SIZE)
-            cnt=0
-                        
-            t1 = threading.Thread(target=self.getAudioData, args=(client_socket,))
+            cnt = 0
+
+            t1 = threading.Thread(
+                target=self.getAudioData, args=(client_socket,))
             t1.start()
             self.procs.append(t1)
             time.sleep(5)
@@ -82,7 +97,7 @@ class Client:
                 frame = self.audio_q.get()
                 stream.write(frame)
                 # print('[Queue size while playing]...',q.qsize(),'[Time remaining...]',round(DURATION),'seconds')
-                DURATION-=CHUNK/48000
+                DURATION -= CHUNK/48000
                 if self.audio_q.empty():
                     break
 
@@ -100,15 +115,24 @@ class Client:
 
         try:
             while not self.exit.is_set():
-                file_path = input()
-                self.upload_file(file_path)
-        except:
+                op_code = input("Enter Operation Code: ")
+                if op_code == '0':
+                    break
+                elif op_code == '1':
+                    file_path = input("Enter File Path: ")
+                    self.upload_file(file_path)
+                elif op_code == '2':
+                    filename = input("Enter Song Title: ")
+                    self.queue_song(filename)
+        finally:
             self.exit.set()
+            print(self.exit.is_set())
             for proc in self.procs:
                 proc.join()
             self.s.close()
             print('Client closed')
             sys.exit(1)
+
 
 if __name__ == "__main__":
     client = Client()

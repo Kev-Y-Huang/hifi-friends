@@ -1,4 +1,5 @@
 import math
+import queue
 import select
 import socket
 import threading
@@ -7,7 +8,8 @@ import wave
 
 import pyaudio
 
-from utils import setup_logger
+from utils import queue_rows, setup_logger
+from wire_protocol import unpack_packet
 
 BUFF_SIZE = 65536
 CHUNK = 10*1024
@@ -25,6 +27,8 @@ class Server:
 
         self.logger = setup_logger()
         self.exit = threading.Event()
+
+        self.song_queue = queue.Queue()
 
     def recv_file(self, c_sock):
         """
@@ -60,17 +64,17 @@ class Server:
 
         self.logger.info('File received successfully.')
 
-    def handle_tcp_client(self, c_sock):
+    def handle_tcp_conn(self, conn):
         """
         Handle a TCP client connection.
         ...
 
         Parameters
         ----------
-        c_sock : socket.socket
+        conn : socket.socket
             The socket to handle.
         """
-        inputs = [c_sock]
+        inputs = [conn]
 
         try:
             # Continuously poll for messages while exit event has not been set
@@ -79,77 +83,83 @@ class Server:
                 read_sockets, _, _ = select.select(inputs, [], [], 0.1)
 
                 for sock in read_sockets:
-                    if sock == c_sock:
-                        client, _ = sock.accept()
-                        inputs.append(client)
-                    else:
-                        data = sock.recv(1)
-                        if data:
-                            opcode = data.decode()
+                    data = sock.recv(1)
+                    if data:
+                        opcode = unpack_packet(data)
 
-                            # If the opcode is 1, we are receiving a file
-                            if opcode == '1':
-                                self.logger.info('[1] Receiving file.')
-                                self.recv_file(sock)
-                            # TODO implement the rest of the opcodes
-                            # If the opcode is 2, we are queuing a file
-                            elif opcode == '2':
-                                self.logger.info('[1] Queuing file.')
-                        # If there is no data, we remove the connection
-                        else:
-                            for sock in inputs:
-                                sock.close()
-        except:
+                        # If the opcode is 1, we are receiving a file
+                        if opcode == 1:
+                            self.logger.info('[1] Receiving file.')
+                            self.recv_file(sock)
+                        # If the opcode is 2, we are queuing a file
+                        elif opcode == 2:
+                            self.logger.info('[2] Queuing file.')
+                            song_name = sock.recv(1024).decode()
+                            song = wave.open(f"server_files/{song_name}.wav")
+                            self.song_queue.put(song)
+                        # TODO implement the rest of the opcodes
+                        # If the opcode is 3, we are stopping the stream
+                        elif opcode == 3:
+                            self.logger.info('Need to finish implementation.')
+                    # If there is no data, we remove the connection
+                    else:
+                        for sock in inputs:
+                            sock.close()
+        except Exception as e:
+            self.logger.exception(e)
             for sock in inputs:
                 sock.close()
 
-    def handle_udp_client(self, c_sock, addr):
+    def handle_udp_conn(self, conn, addr):
         """
         Handle a UDP client connection.
         ...
 
         Parameters
         ----------
-        c_sock : socket.socket
+        conn : socket.socket
             The socket to handle.
         addr : tuple
             The address of the client.
         """
-        wf = wave.open("temp.wav")
-        p = pyaudio.PyAudio()
-        stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
-                        channels=wf.getnchannels(),
-                        rate=wf.getframerate(),
-                        input=True,
-                        frames_per_buffer=CHUNK)
-
-        data = None
-        sample_rate = wf.getframerate()
         while not self.exit.is_set():
-            DATA_SIZE = math.ceil(wf.getnframes()/CHUNK)
-            DATA_SIZE = str(DATA_SIZE).encode()
-            self.logger.info(
-                f'Sending data size {wf.getnframes()/sample_rate}')
-            c_sock.sendto(DATA_SIZE, addr)
-            cnt = 0
-            while not self.exit.is_set():
-                data = wf.readframes(CHUNK)
-                c_sock.sendto(data, addr)
-                # Here you can adjust it according to how fast you want to send data keep it > 0
-                time.sleep(0.001)
+            for song in queue_rows(self.song_queue):
+                self.logger.info('Streaming audio.')
+                # wf = wave.open("server_files/temp.wav")
+                p = pyaudio.PyAudio()
+                stream = p.open(format=p.get_format_from_width(song.getsampwidth()),
+                                channels=song.getnchannels(),
+                                rate=song.getframerate(),
+                                input=True,
+                                frames_per_buffer=CHUNK)
 
-                if cnt > (wf.getnframes()/CHUNK):
+                data = None
+                sample_rate = song.getframerate()
+                while not self.exit.is_set():
+                    DATA_SIZE = math.ceil(song.getnframes()/CHUNK)
+                    DATA_SIZE = str(DATA_SIZE).encode()
+                    self.logger.info(
+                        f'Sending data size {song.getnframes()/sample_rate}')
+                    conn.sendto(DATA_SIZE, addr)
+                    cnt = 0
+                    while not self.exit.is_set():
+                        data = song.readframes(CHUNK)
+                        conn.sendto(data, addr)
+                        # Here you can adjust it according to how fast you want to send data keep it > 0
+                        time.sleep(0.001)
+
+                        if cnt > (song.getnframes()/CHUNK):
+                            break
+                        cnt += 1
+
                     break
-                cnt += 1
+                stream.stop_stream()
+                stream.close()
+                p.terminate()
+                song.close()
+                # c_sock.close() was suggested by github copilot so idk if it's right
 
-            break
-        stream.stop_stream()
-        stream.close()
-        p.terminate()
-        wf.close()
-        # c_sock.close() was suggested by github copilot so idk if it's right
-
-        self.logger.info('Audio streamed successfully.')
+                self.logger.info('Audio streamed successfully.')
 
     def run_server(self):
         """
@@ -178,15 +188,15 @@ class Server:
                 for sock in read_sockets:
                     # If the socket is the server socket, accept as a connection
                     if sock == self.tcp_sock:
-                        client, addr = sock.accept()
-                        inputs.append(client)
+                        conn, addr = sock.accept()
+                        inputs.append(conn)
 
                         self.logger.info(
                             f'[+] TCP connected to {addr[0]} ({addr[1]})')
 
-                        # Start a new thread for each client
+                        # Start a new thread for each connection
                         proc = threading.Thread(
-                            target=self.handle_tcp_client, args=(client,))
+                            target=self.handle_tcp_conn, args=(conn,))
                         proc.start()
                         procs.append(proc)
                     # If the socket is the server socket, accept as a connection
@@ -198,16 +208,17 @@ class Server:
                         self.logger.info(
                             f'[+] UDP connected to {addr[0]} ({addr[1]})')
 
-                        # Start a new thread for each client
+                        # Start a new thread for each connection
                         proc = threading.Thread(
-                            target=self.handle_udp_client, args=(sock, addr,))
+                            target=self.handle_udp_conn, args=(sock, addr,))
                         proc.start()
                         procs.append(proc)
                     # Otherwise, read the data from the socket
                     else:
                         # TODO pls fix
-                        sock.close()
-                        inputs.remove(sock)
+                        print("shrug")
+                        # sock.close()
+                        # inputs.remove(sock)
         except KeyboardInterrupt as e:
             self.logger.info('Shutting down server.')
             self.exit.set()
