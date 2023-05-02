@@ -1,5 +1,6 @@
 import os
 import queue
+import select
 import socket
 import sys
 import threading
@@ -11,12 +12,19 @@ HOST = socket.gethostname()
 TCP_PORT = 1538
 UDP_PORT = 1539
 
+BUFF_SIZE = 65536
+CHUNK = 10*1024
+
 class Client:
     def __init__(self, host=HOST, tcp_port=TCP_PORT, udp_port=UDP_PORT):
         self.s = socket.socket()
         self.host = host
         self.tcp_port = tcp_port
         self.udp_port = udp_port
+
+        self.exit = threading.Event()
+
+        self.procs = []
 
     def upload_file(self, file_path):
         filename = os.path.basename(file_path)
@@ -37,20 +45,19 @@ class Client:
         file_to_send.close()
         print('File Sent')
 
-    def connect_to_server(self):
-        self.s.connect((self.host, self.tcp_port))
-
-        while True:
-            file_path = input()
-            self.upload_file(file_path)
+    def getAudioData(self, client_socket):
+        inputs = [client_socket]
+        while not self.exit.is_set():
+            read_sockets, _, _ = select.select(inputs, [], [], 0.1)
+            for sock in read_sockets:
+                frame,_= sock.recvfrom(BUFF_SIZE)
+                self.audio_q.put(frame)
 
     def stream_audio(self):
         try:
-            BUFF_SIZE = 65536
             client_socket = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
             client_socket.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,BUFF_SIZE)
             p = pyaudio.PyAudio()
-            CHUNK = 10*1024
             stream = p.open(format=p.get_format_from_width(2),
                             channels=2,
                             rate=48000,
@@ -62,33 +69,47 @@ class Client:
             client_socket.sendto(message,(self.host,self.udp_port))
             DATA_SIZE,_= client_socket.recvfrom(BUFF_SIZE)
             DATA_SIZE = int(DATA_SIZE.decode())
-            q = queue.Queue(maxsize=DATA_SIZE)
+            self.audio_q = queue.Queue(maxsize=DATA_SIZE)
             cnt=0
-            def getAudioData():
-                while True:
-                    frame,_= client_socket.recvfrom(BUFF_SIZE)
-                    q.put(frame)
-                    # print('[Queue size while loading]...',q.qsize())
                         
-            t1 = threading.Thread(target=getAudioData, args=())
+            t1 = threading.Thread(target=self.getAudioData, args=(client_socket,))
             t1.start()
+            self.procs.append(t1)
             time.sleep(5)
             DURATION = DATA_SIZE*CHUNK/48000
             # print('[Now Playing]... Data',DATA_SIZE,'[Audio Time]:',DURATION ,'seconds')
-            while True:
-                frame = q.get()
+            while not self.exit.is_set():
+                frame = self.audio_q.get()
                 stream.write(frame)
                 # print('[Queue size while playing]...',q.qsize(),'[Time remaining...]',round(DURATION),'seconds')
                 DURATION-=CHUNK/48000
-                if q.empty():
+                if self.audio_q.empty():
                     break
+
         except:
             client_socket.close()
             print('Audio closed')
             sys.exit(1)
 
+    def run_client(self):
+        self.s.connect((self.host, self.tcp_port))
+
+        stream_proc = threading.Thread(target=client.stream_audio, args=())
+        stream_proc.start()
+        self.procs.append(stream_proc)
+
+        try:
+            while not self.exit.is_set():
+                file_path = input()
+                self.upload_file(file_path)
+        except:
+            self.exit.set()
+            for proc in self.procs:
+                proc.join()
+            self.s.close()
+            print('Client closed')
+            sys.exit(1)
+
 if __name__ == "__main__":
     client = Client()
-    t1 = threading.Thread(target=client.stream_audio, args=())
-    t1.start()
-    client.connect_to_server()
+    client.run_client()
