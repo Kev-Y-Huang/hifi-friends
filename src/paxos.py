@@ -16,7 +16,7 @@ class PaxServer:
 
 class Paxos:
     def __init__(self, server_id):
-        self.machines = (dict(enumerate(MACHINES)))
+        self.machines = dict()
         self.server_id = server_id
         self.clock = 0
         self.gen_number = 0
@@ -118,10 +118,8 @@ class Paxos:
 
     def commit_op(self, filename, operation):
         if operation == "upload":
-            print(self.machines)
             for server_id in self.machines:
                 server = self.machines[server_id]
-                print(server_id)
                 if not server.accepted:
                     print('server to server upload attempt')
                     s = socket.socket()
