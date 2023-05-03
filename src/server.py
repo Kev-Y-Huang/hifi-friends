@@ -1,7 +1,7 @@
-import math
 import queue
 import select
 import socket
+import struct
 import threading
 import time
 import wave
@@ -12,12 +12,18 @@ import pyaudio
 from utils import queue_rows, setup_logger
 from wire_protocol import unpack_opcode, unpack_size
 
+HOST = socket.gethostname()
+TCP_PORT = 1538
+UDP_PORT = 1539
+CLIENT_UPDATE_PORT = 1540
+
 BUFF_SIZE = 65536
 CHUNK = 10*1024
 
 
 class Server:
-    def __init__(self, tcp_port=1538, udp_port=1539):
+    def __init__(self, host=HOST, tcp_port=TCP_PORT, udp_port=UDP_PORT, client_update_port=CLIENT_UPDATE_PORT):
+        self.host = host
         self.tcp_port = tcp_port
         self.udp_port = udp_port
         self.tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -35,6 +41,14 @@ class Server:
         self.now_playing = queue.Queue()
 
         self.udp_addrs = []
+
+        self.pause_playback = threading.Event()
+
+        self.client_update_port = client_update_port
+        self.client_update_socket = socket.socket(
+            socket.AF_INET, socket.SOCK_STREAM)
+        self.client_update_socket.setsockopt(
+            socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     def poll_read_sock_no_exit(self, inputs, timeout=0.1):
         """
@@ -101,7 +115,7 @@ class Server:
         ----------
         conn : socket.socket
             The socket to receive the song name from.
-        
+
         Returns
         -------
         str
@@ -118,7 +132,7 @@ class Server:
             message = f'File {song_name} not found.'
             self.logger.error(message)
         return message
-    
+
     def get_queue(self):
         """
         Get the queue of songs to be played.
@@ -129,7 +143,8 @@ class Server:
         str
             The queue of songs to be played.
         """
-        now_playing_str = ','.join(str(item) for item in self.now_playing.queue)
+        now_playing_str = ','.join(str(item)
+                                   for item in self.now_playing.queue)
         song_queue_str = ','.join(str(item) for item in self.song_queue.queue)
         return f"[{now_playing_str},{song_queue_str}]"
 
@@ -173,18 +188,9 @@ class Server:
                     elif opcode == 3:
                         message = str(self.uploaded_files)
                         conn.send(message.encode())
+                    # If the opcode is 4, we are sending the current queue
                     elif opcode == 4:
-                        self.logger.debug('[4] Playing the next song.')
-                        if self.song_queue.empty():
-                            self.logger.debug('No songs in queue.')
-                        else:
-                            song_path = self.song_queue.get()
-                            song = wave.open(song_path)
-                            self.now_playing.put(song)
-                            self.logger.info('Playing next song.')
-                    # If the opcode is 5, we are sending the current queue
-                    elif opcode == 5:
-                        self.logger.debug('[5] Requesting current queue.')
+                        self.logger.debug('[4] Requesting current queue.')
                         message = self.get_queue()
                         conn.send(message.encode())
                     # TODO implement the rest of the opcodes
@@ -255,6 +261,53 @@ class Server:
 
         p.terminate()
 
+    def listen_client_updates(self):
+        """
+        Listens for client state updates
+        """
+        self.client_update_socket.bind((self.host, self.client_update_port))
+        self.client_update_socket.listen(5)
+
+        inputs = [server.client_update_socket]
+
+        try:
+            for sock in self.poll_read_sock_no_exit(inputs):
+                # If the socket is the server socket, accept as a connection
+                if sock == self.client_update_socket:
+                    client, _ = sock.accept()
+                    inputs.append(client)
+                # Otherwise, read the data from the socket
+                else:
+                    data = sock.recv(1024)
+                    if data:
+                        data = data.decode()
+
+                        if data == "PLAY":
+                            self.logger.info('PLAY')
+                            self.pause_playback.clear()
+                        elif data == "PAUSE":
+                            self.logger.info('PAUSE')
+                            self.pause_playback.set()
+                        elif data == "NEXT":
+                            self.logger.info('NEXT')
+                            if self.song_queue.empty():
+                                self.logger.debug('No songs in queue.')
+                            else:
+                                song_path = self.song_queue.get()
+                                song = wave.open(song_path)
+                                self.now_playing.put(song)
+                                self.logger.info('Playing next song.')
+                        sock.send(struct.pack(
+                            "?", self.pause_playback.is_set()))
+                    # If there is no data, then the connection has been closed
+                    else:
+                        sock.close()
+                        inputs.remove(sock)
+        except Exception as e:
+            print(e)
+            for conn in inputs:
+                conn.close()
+
     def run_server(self):
         """
         Run the server.
@@ -268,11 +321,15 @@ class Server:
         # Listen for incoming connections
         self.tcp_sock.listen(5)
 
+        client_update_proc = threading.Thread(
+            target=self.listen_client_updates, args=())
+        client_update_proc.start()
+
         stream_proc = threading.Thread(target=self.stream_audio, args=())
         stream_proc.start()
 
         inputs = [self.tcp_sock, self.udp_sock]
-        procs = [stream_proc]
+        procs = [stream_proc, client_update_proc]
 
         self.logger.info('Waiting for incoming connections')
         try:

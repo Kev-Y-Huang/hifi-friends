@@ -2,6 +2,7 @@ import os
 import queue
 import select
 import socket
+import struct
 import sys
 import threading
 import time
@@ -14,14 +15,15 @@ from wire_protocol import pack_opcode, pack_file_name_size, pack_file_size
 HOST = socket.gethostname()
 TCP_PORT = 1538
 UDP_PORT = 1539
+CLIENT_UPDATE_PORT = 1540
 
 BUFF_SIZE = 65536
 CHUNK = 10*1024
 
 
 class Client:
-    def __init__(self, host=HOST, tcp_port=TCP_PORT, udp_port=UDP_PORT):
-        self.s = socket.socket()
+    def __init__(self, host=HOST, tcp_port=TCP_PORT, udp_port=UDP_PORT, client_update_port=CLIENT_UPDATE_PORT):
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.host = host
         self.tcp_port = tcp_port
         self.udp_port = udp_port
@@ -35,6 +37,12 @@ class Client:
         self.audio_q = queue.Queue()
 
         self.stream = None
+
+        self.client_update_port = client_update_port
+        self.client_update_socket = socket.socket(
+            socket.AF_INET, socket.SOCK_STREAM)
+        self.client_update_socket.connect((self.host, self.client_update_port))
+        self.next_update = b'ping'
 
     def upload_file(self, file_path):
         """
@@ -85,7 +93,7 @@ class Client:
         message = self.s.recv(1024).decode()
         print(message)
         return message
-    
+
     def get_current_queue(self):
         """
         Gets the current queue from the server and prints it.
@@ -122,16 +130,16 @@ class Client:
             while not self.exit.is_set():
                 if self.audio_q.empty():
                     # TODO implement sending next song request
-                    self.s.send(pack_opcode(4))
-                    time.sleep(1)
+                    self.next_update = b"NEXT"
+                    time.sleep(0.1)
                     continue
 
                 print("Playing")
                 self.stream = p.open(format=format,
-                                channels=2,
-                                rate=48000,
-                                output=True,
-                                frames_per_buffer=CHUNK)
+                                     channels=2,
+                                     rate=48000,
+                                     output=True,
+                                     frames_per_buffer=CHUNK)
 
                 # TODO fix this monstrocity
                 for frame in queue_rows(self.audio_q):
@@ -143,14 +151,38 @@ class Client:
                             raise Exception("Exiting")
                         time.sleep(0.1)
                     self.stream.write(frame)
-                
+
                 self.stream.stop_stream()
                 self.stream.close()
+                self.stream = None
 
         finally:
             self.client_socket.close()
             p.terminate()
             print('Audio closed')
+
+    def server_update(self):
+        """
+        Update the server with the client's ip address and port.
+        """
+        try:
+            while not self.exit.is_set():
+                time.sleep(0.1)
+                self.client_update_socket.send(self.next_update)
+                self.next_update = b'ping'
+                data = self.client_update_socket.recv(1024)
+                state = struct.unpack("?", data)[0]  # TODO can do this better
+
+                if self.stream and state == self.stream.is_active():
+                    if state:
+                        self.stream.stop_stream()
+                    else:
+                        self.stream.start_stream()
+        except Exception as e:
+            print(e)
+        finally:
+            self.client_update_socket.close()
+            print('Server update closed')
 
     def run_client(self):
         """
@@ -158,12 +190,16 @@ class Client:
         """
         self.s.connect((self.host, self.tcp_port))
 
-        stream_proc = threading.Thread(target=self.stream_audio, args=())
-        stream_proc.start()
-
         get_audio_data_proc = threading.Thread(
             target=self.get_audio_data, args=())
         get_audio_data_proc.start()
+
+        stream_proc = threading.Thread(target=self.stream_audio, args=())
+        stream_proc.start()
+
+        server_update_proc = threading.Thread(
+            target=self.server_update, args=())
+        server_update_proc.start()
 
         try:
             while not self.exit.is_set():
@@ -186,9 +222,16 @@ class Client:
                 elif op_code == '7':
                     if self.stream:
                         self.stream.stop_stream()
+                        self.next_update = b'PAUSE'
                 elif op_code == '8':
                     if self.stream:
                         self.stream.start_stream()
+                        self.next_update = b'PLAY'
+                elif op_code == '9':
+                    if self.stream:
+                        with self.audio_q.mutex:
+                            self.audio_q.queue.clear()
+                        self.next_update = b'PLAY'
         except Exception as e:
             print(e)
         finally:
@@ -197,6 +240,7 @@ class Client:
 
             stream_proc.join()
             get_audio_data_proc.join()
+            server_update_proc.join()
 
             self.s.close()
             print('Client closed')
