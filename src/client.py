@@ -96,18 +96,18 @@ class Client:
 
         # Wait for server to respond
         message = self.s.recv(1024).decode()
-        print(message)
+        # print(message)
         return message
 
     def get_current_queue(self):
         """
         Gets the current queue from the server and prints it.
         """
-        self.s.send(pack_opcode(5))
+        self.s.send(pack_opcode(4))
 
         # Wait for server to respond
         message = self.s.recv(1024).decode()
-        print(message)
+        # print(message)
         return message
 
     def get_audio_data(self):

@@ -22,7 +22,6 @@ client_thread.start()
 
 # Dummy list of songs
 songs = []
-
 # Dummy queue of songs
 queue = []
 
@@ -37,8 +36,13 @@ def get_songs():
     '''
     Flask route to update the list of songs, calls the get_updated_songs() function
     '''
+    global songs
     try:
-        songs = literal_eval(client.get_song_list())
+        temp_songs = client.get_song_list()
+        if temp_songs[:7] == ':songs:':
+            songs = literal_eval(temp_songs[7:])
+        else:
+            pass
     except:
         return {'error': 'Unable to retrieve songs'}, 400
     return songs
@@ -68,8 +72,13 @@ def get_queue():
     '''
     Flask route to update the list of songs, calls the get_updated_songs() function
     '''
+    global queue
     try:
-        queue = literal_eval(client.get_current_queue())
+        temp_queue = client.get_current_queue()
+        if temp_queue[:7] == ':queue:':
+            queue = literal_eval(temp_queue[7:])
+        else:
+            pass
     except:
         return {'error': 'Unable to retrieve queue'}, 400
     return queue

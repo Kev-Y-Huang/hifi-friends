@@ -186,12 +186,12 @@ class Server:
                         conn.send(message.encode())
                     # If the opcode is 3, we are sending the list of available songs
                     elif opcode == 3:
-                        message = str(self.uploaded_files)
+                        message = ':songs:' + str(self.uploaded_files)
                         conn.send(message.encode())
                     # If the opcode is 4, we are sending the current queue
                     elif opcode == 4:
                         self.logger.debug('[4] Requesting current queue.')
-                        message = self.get_queue()
+                        message = ':queue:' + self.get_queue()
                         conn.send(message.encode())
                     # TODO implement the rest of the opcodes
                     elif opcode == 6:
