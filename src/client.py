@@ -81,7 +81,7 @@ class Client:
 
         # Wait for server to respond
         message = self.s.recv(1024).decode()
-        print(message)
+        return message
 
     def get_audio_data(self):
         """
@@ -137,7 +137,7 @@ class Client:
         """
         self.s.connect((self.host, self.tcp_port))
 
-        stream_proc = threading.Thread(target=client.stream_audio, args=())
+        stream_proc = threading.Thread(target=self.stream_audio, args=())
         stream_proc.start()
 
         get_audio_data_proc = threading.Thread(

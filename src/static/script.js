@@ -125,3 +125,8 @@ window.addEventListener("DOMContentLoaded", function () {
   updateSongList();
   updateQueue();
 });
+
+setInterval(function() {
+  updateSongList();
+  updateQueue();
+}, 2000);

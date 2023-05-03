@@ -4,25 +4,24 @@ from flask import (
     request,
     Response
 )
-import client
-import pyaudio
-import socket
+
+from client import Client
+from ast import literal_eval
 import os
+import threading
 
-HOST = socket.gethostname() # Server IP address
-TCP_PORT = 1538 
-UDP_PORT = 1539
-
-BUFF_SIZE = 1024
-CHUNK = 1024
-
+client = Client()
 
 app = Flask(__name__)
 
-newClient = client.Client()
+def run_client():
+    client.run_client()
+
+client_thread = threading.Thread(target=run_client)
+client_thread.start()
 
 # Dummy list of songs
-songs = os.listdir('server_files')
+songs = []
 
 # Dummy queue of songs
 queue = []
@@ -33,19 +32,12 @@ def index():
     return render_template('index.html', songs=songs, queue=queue)
 
 
-def get_updated_songs():
-    '''
-    Function to ping the server and get the updated list of songs
-    '''
-    # temporarily return songs
-    return songs
-
-
 @app.route('/get_songs', methods=['GET'])
 def get_songs():
     '''
     Flask route to update the list of songs, calls the get_updated_songs() function
     '''
+    songs = literal_eval(client.get_song_list())
     return songs
 
 
@@ -88,11 +80,10 @@ def add_song_to_queue():
         # Add the selected song to the queue
         # Your queue management code here
         queue.append(selected_song)
-        newClient.queue_song(selected_song)
+        client.queue_song(selected_song)
         return {'message': 'Song added to the queue.'}, 200
 
     return {'error': 'Invalid song selection.'}, 400
 
 if __name__ == '__main__':
     app.run(debug=True)
-    newClient.run_client()

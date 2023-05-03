@@ -157,7 +157,7 @@ class Server:
                         conn.send(message.encode())
                     # If the opcode is 3, we are sending the list of available songs
                     elif opcode == 3:
-                        message = '- ' + '\n- '.join(self.uploaded_files)
+                        message = str(self.uploaded_files)
                         conn.send(message.encode())
                     elif opcode == 4:
                         self.logger.debug('[4] Playing the next song.')
