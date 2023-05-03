@@ -38,15 +38,9 @@ def pack_opcode(opcode: int) -> bytes:
 def unpack_opcode(opcode: bytes) -> int:
     return struct.unpack("!B", opcode)[0]
 
-# Encodes filename size as 16 bit binary, limit your filename length to 255 bytes
-def pack_file_name_size(file_name: str) -> bytes:
-    size = bin(len(file_name))[2:].zfill(16)
-    return size.encode()
+# Encodes num as a len bit binary
+def pack_num(num: int, len: int) -> bytes:
+    return (bin(num)[2:].zfill(len)).encode()
 
-# Encode filesize as 32 bit binary
-def pack_file_size(file_size: str) -> bytes:
-    file_size = bin(file_size)[2:].zfill(32)
-    return file_size.encode()
-
-def unpack_size(size: bytes) -> str:
-    return int(size.decode(), 2)
+def unpack_num(num: bytes) -> str:
+    return int(num.decode(), 2)

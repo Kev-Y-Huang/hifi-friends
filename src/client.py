@@ -10,7 +10,7 @@ import time
 import pyaudio
 
 from utils import queue_rows
-from wire_protocol import pack_opcode, pack_file_name_size, pack_file_size
+from wire_protocol import pack_opcode, pack_num, unpack_num
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -62,9 +62,9 @@ class Client:
         self.s.send(pack_opcode(1))
 
         file_name = os.path.basename(file_path)
-        self.s.send(pack_file_name_size(file_name))
+        self.s.send(pack_num(len(file_name), 16))
         self.s.send(file_name.encode())
-        self.s.send(pack_file_size(os.path.getsize(file_path)))
+        self.s.send(pack_num(os.path.getsize(file_path), 32))
 
         with open(file_path, 'rb') as file_to_send:
             self.s.sendall(file_to_send.read())
@@ -126,9 +126,9 @@ class Client:
                 try:
                     # Received audio header
                     if int(frame.decode(), 2) == 0:
-                        self.width = int(sock.recvfrom(16)[0].decode(), 2)
-                        self.sample_rate = int(sock.recvfrom(16)[0].decode(), 2)
-                        self.n_channels = int(sock.recvfrom(16)[0].decode(), 2)
+                        self.width = unpack_num(sock.recvfrom(16)[0])
+                        self.sample_rate = unpack_num(sock.recvfrom(16)[0])
+                        self.n_channels = unpack_num(sock.recvfrom(16)[0])
 
                         self.audio_q.put(song_q)
                         song_q = queue.Queue()
