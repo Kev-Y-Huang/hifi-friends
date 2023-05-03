@@ -34,6 +34,8 @@ class Client:
 
         self.audio_q = queue.Queue()
 
+        self.stream = None
+
     def upload_file(self, file_path):
         """
         Upload a file to the server.
@@ -81,6 +83,7 @@ class Client:
 
         # Wait for server to respond
         message = self.s.recv(1024).decode()
+        print(message)
         return message
     
     def get_current_queue(self):
@@ -107,6 +110,8 @@ class Client:
                 frame, _ = sock.recvfrom(BUFF_SIZE)
                 self.audio_q.put(frame)
 
+        print("closed")
+
     def stream_audio(self):
         """
         Stream audio from the server.
@@ -117,12 +122,12 @@ class Client:
             while not self.exit.is_set():
                 if self.audio_q.empty():
                     # TODO implement sending next song request
-                    # self.s.send(pack_opcode(4))
-                    # time.sleep(1)
+                    self.s.send(pack_opcode(4))
+                    time.sleep(1)
                     continue
 
                 print("Playing")
-                stream = p.open(format=format,
+                self.stream = p.open(format=format,
                                 channels=2,
                                 rate=48000,
                                 output=True,
@@ -132,10 +137,15 @@ class Client:
                 for frame in queue_rows(self.audio_q):
                     if self.exit.is_set():
                         break
-                    stream.write(frame)
+                    # TODO definitely can do this better
+                    while self.stream.is_stopped():
+                        if self.exit.is_set():
+                            raise Exception("Exiting")
+                        time.sleep(0.1)
+                    self.stream.write(frame)
                 
-                stream.stop_stream()
-                stream.close()
+                self.stream.stop_stream()
+                self.stream.close()
 
         finally:
             self.client_socket.close()
@@ -173,6 +183,12 @@ class Client:
                     self.queue_song(filename)
                 elif op_code == '3':
                     self.get_song_list()
+                elif op_code == '7':
+                    if self.stream:
+                        self.stream.stop_stream()
+                elif op_code == '8':
+                    if self.stream:
+                        self.stream.start_stream()
         except Exception as e:
             print(e)
         finally:

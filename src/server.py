@@ -118,6 +118,20 @@ class Server:
             message = f'File {song_name} not found.'
             self.logger.error(message)
         return message
+    
+    def get_queue(self):
+        """
+        Get the queue of songs to be played.
+        ...
+
+        Returns
+        -------
+        str
+            The queue of songs to be played.
+        """
+        now_playing_str = ','.join(str(item) for item in self.now_playing.queue)
+        song_queue_str = ','.join(str(item) for item in self.song_queue.queue)
+        return f"[{now_playing_str},{song_queue_str}]"
 
     def handle_tcp_conn(self, conn):
         """
@@ -170,9 +184,8 @@ class Server:
                             self.logger.info('Playing next song.')
                     # If the opcode is 5, we are sending the current queue
                     elif opcode == 5:
-                        now_playing_str = ','.join(str(item) for item in self.now_playing.queue)
-                        song_queue_str = ','.join(str(item) for item in self.song_queue.queue)
-                        message = f"[{now_playing_str},{song_queue_str}]"
+                        self.logger.debug('[5] Requesting current queue.')
+                        message = self.get_queue()
                         conn.send(message.encode())
                     # TODO implement the rest of the opcodes
                     elif opcode == 6:
