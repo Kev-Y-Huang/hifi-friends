@@ -235,11 +235,10 @@ class Server:
                                 frames_per_buffer=CHUNK)
 
                 # TODO just fix this :/
+                width = song.getsampwidth()
                 sample_rate = song.getframerate()
+                n_channels = song.getnchannels()
                 while not self.exit.is_set():
-                    self.logger.info(f'Sending sample rate {sample_rate}')
-                    sample_rate = str(sample_rate).encode()
-                    self.send_to_all_udp_addrs(sample_rate)
                     cnt = 0
                     while not self.exit.is_set():
                         data = song.readframes(CHUNK)
@@ -256,6 +255,24 @@ class Server:
                 stream.close()
                 song.close()
                 # c_sock.close() was suggested by github copilot so idk if it's right
+
+                # Send audio header information with all 0s delimiter
+                self.send_to_all_udp_addrs((bin(0)[2:].zfill(16)).encode())
+                time.sleep(0.01)
+
+                self.logger.info(f'Sending sample rate {width}')
+                self.logger.info(f'Sending sample rate {sample_rate}')
+                self.logger.info(f'Sending sample rate {n_channels}')
+
+                width = (bin(width)[2:].zfill(16)).encode()
+                sample_rate = (bin(sample_rate)[2:].zfill(16)).encode()
+                n_channels = (bin(n_channels)[2:].zfill(16)).encode()
+
+                self.send_to_all_udp_addrs(width)
+                self.send_to_all_udp_addrs(sample_rate)
+                self.send_to_all_udp_addrs(n_channels)
+                
+                time.sleep(0.001)
 
                 self.logger.info('Audio streamed successfully.')
 

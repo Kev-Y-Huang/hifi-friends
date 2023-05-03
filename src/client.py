@@ -44,6 +44,11 @@ class Client:
         self.client_update_socket.connect((self.host, self.client_update_port))
         self.next_update = b'ping'
 
+        self.width = 2
+        self.sample_rate = 22050
+        self.n_channels = 2
+        
+
     def upload_file(self, file_path):
         """
         Upload a file to the server.
@@ -112,11 +117,24 @@ class Client:
         inputs = [self.client_socket]
         self.client_socket.sendto(b'0', (self.host, self.udp_port))
 
+        song_q = queue.Queue()
         while not self.exit.is_set():
             read_sockets, _, _ = select.select(inputs, [], [], 0.1)
             for sock in read_sockets:
                 frame, _ = sock.recvfrom(BUFF_SIZE)
-                self.audio_q.put(frame)
+
+                try:
+                    # Received audio header
+                    if int(frame.decode(), 2) == 0:
+                        self.width = int(sock.recvfrom(16)[0].decode(), 2)
+                        self.sample_rate = int(sock.recvfrom(16)[0].decode(), 2)
+                        self.n_channels = int(sock.recvfrom(16)[0].decode(), 2)
+
+                        self.audio_q.put(song_q)
+                        song_q = queue.Queue()
+                except:
+                    song_q.put(frame)
+                
 
         print("closed")
 
@@ -125,7 +143,7 @@ class Client:
         Stream audio from the server.
         """
         p = pyaudio.PyAudio()
-        format = p.get_format_from_width(2)
+
         try:
             while not self.exit.is_set():
                 if self.audio_q.empty():
@@ -134,15 +152,17 @@ class Client:
                     time.sleep(0.1)
                     continue
 
+                song_q = self.audio_q.get()
+
                 print("Playing")
-                self.stream = p.open(format=format,
-                                     channels=2,
-                                     rate=48000,
-                                     output=True,
-                                     frames_per_buffer=CHUNK)
+                self.stream = p.open(format=p.get_format_from_width(self.width),
+                                channels=self.n_channels,
+                                rate=self.sample_rate,
+                                output=True,
+                                frames_per_buffer=CHUNK)
 
                 # TODO fix this monstrocity
-                for frame in queue_rows(self.audio_q):
+                for frame in queue_rows(song_q):
                     if self.exit.is_set():
                         break
                     # TODO definitely can do this better
