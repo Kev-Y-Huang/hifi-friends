@@ -94,7 +94,7 @@ def upload_file(sock, file_path):
     file_path : str
         The path to the file to upload.
     """
-    sock.send(pack_opcode(4))
+    sock.send(pack_opcode(5))
     filename = os.path.basename(file_path)
     size = len(filename)
     # encode filename size as 16 bit binary, limit your filename length to 255 bytes

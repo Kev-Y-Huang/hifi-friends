@@ -44,7 +44,7 @@ class Server:
         self.operation = None
         self.accept_operation = ""
         self.paxos = Paxos(server_id)
-        self.paxos.servers = get_other_machines(server_id)
+        self.paxos.machines = {machine.id: machine for machine in get_other_machines(server_id)}
 
         # Internal Ops Queue
         self.queue = Queue()
@@ -114,6 +114,9 @@ class Server:
         self.logger.info('File received successfully.')
         self.uploaded_files.append(filename)
 
+        # TODO: Initiate Paxos
+        # self.paxos.send_prepare()
+
         if replicate:
             self.paxos.commit_op(filename, 'upload')
 
@@ -163,7 +166,7 @@ class Server:
                     # TODO implement the rest of the opcodes
                     elif opcode == 3:
                         self.logger.info('Need to finish implementation.')
-                    elif opcode == 4:
+                    elif opcode == 5:
                         self.logger.info('[1] Receiving audio file.')
                         self.recv_file(sock, replicate=False)
                 # If there is no data, we remove the connection
@@ -331,12 +334,13 @@ class Server:
         """
         Sets up the internal connections to the other servers
         """
-        for backup in self.machines:
+        for server_id in self.paxos.machines:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server = self.paxos.machines[server_id]
             try:
-                sock.connect((backup.ip, backup.internal_port))
-                print(f"Connected to Server {backup.id} on port {backup.internal_port}")
-                self.paxos.machines[backup.id].conn = sock
+                sock.connect((server.ip, server.internal_port))
+                print(f"Connected to Server {server.id} on port {server.internal_port}")
+                self.paxos.machines[server.id].conn = sock
 
             except:
                 # self.logger.info(f"Setup failed for {backup.id}")
