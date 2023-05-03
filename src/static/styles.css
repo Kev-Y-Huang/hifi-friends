@@ -122,3 +122,8 @@ audio {
   justify-content: center;
   display: flex;
 }
+
+#playingIndicator {
+  width: 50px;
+  height: 50px;
+}

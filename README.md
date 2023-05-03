@@ -11,6 +11,18 @@ We built a server and client using the `socket` and `threading` native Python li
 
 ## How to run the app
 
+To run the server
+
+```bash
+python3 src/server.py
+```
+
+To run the client
+
+```bash
+python3 src/app.py
+```
+
 ## How to run the tests
 
 ## Folder Structure

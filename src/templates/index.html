@@ -58,6 +58,11 @@
         {% if queue|length > 0 %}
         <label for="song1">
           <h3>{{ queue[0] }}</h3>
+          <img
+            id="playingIndicator"
+            src="{{ url_for('static', filename='sound.gif') }}"
+            alt="Playing Indicator"
+          />
         </label>
         {% else %}
         <p>No song is currently playing.</p>

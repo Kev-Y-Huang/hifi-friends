@@ -38,6 +38,11 @@ function updateQueue() {
         playingContainer.innerHTML = `
           <label for="song1">
             <h3>${data[0]}</h3>
+            <img
+              id="playingIndicator"
+              src="static/sound.gif"
+              alt="Playing Indicator"
+            />
           </label>
         `;
       } else {

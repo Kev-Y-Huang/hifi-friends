@@ -4,18 +4,17 @@ from flask import (
     request,
     Response
 )
-from utils import client
+import client
 import pyaudio
 import socket
 import os
 
 app = Flask(__name__)
 
-# newClient = client.Client()
+newClient = client.Client()
 
 # Dummy list of songs
 songs = os.listdir('server_files')
-
 
 # Dummy queue of songs
 queue = []
