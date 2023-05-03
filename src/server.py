@@ -10,7 +10,7 @@ import os
 import pyaudio
 
 from utils import queue_rows, setup_logger
-from wire_protocol import unpack_opcode, unpack_size
+from wire_protocol import unpack_opcode, pack_num, unpack_num
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -83,9 +83,9 @@ class Server:
             The socket to receive the file from.
         """
         # TODO use specific wire protocol for file transfer
-        file_name_size = unpack_size(c_sock.recv(16))
+        file_name_size = unpack_num(c_sock.recv(16))
         file_name = c_sock.recv(file_name_size).decode()
-        file_size = unpack_size(c_sock.recv(32))
+        file_size = unpack_num(c_sock.recv(32))
 
         with open('server_files/' + file_name, 'wb') as file_to_write:
             chunk_size = 4096
@@ -257,20 +257,16 @@ class Server:
                 # c_sock.close() was suggested by github copilot so idk if it's right
 
                 # Send audio header information with all 0s delimiter
-                self.send_to_all_udp_addrs((bin(0)[2:].zfill(16)).encode())
+                self.send_to_all_udp_addrs(pack_num(0, 16))
                 time.sleep(0.01)
 
                 self.logger.info(f'Sending sample rate {width}')
                 self.logger.info(f'Sending sample rate {sample_rate}')
                 self.logger.info(f'Sending sample rate {n_channels}')
 
-                width = (bin(width)[2:].zfill(16)).encode()
-                sample_rate = (bin(sample_rate)[2:].zfill(16)).encode()
-                n_channels = (bin(n_channels)[2:].zfill(16)).encode()
-
-                self.send_to_all_udp_addrs(width)
-                self.send_to_all_udp_addrs(sample_rate)
-                self.send_to_all_udp_addrs(n_channels)
+                self.send_to_all_udp_addrs(pack_num(width, 16))
+                self.send_to_all_udp_addrs(pack_num(sample_rate, 16))
+                self.send_to_all_udp_addrs(pack_num(n_channels, 16))
                 
                 time.sleep(0.001)
 
