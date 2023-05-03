@@ -95,7 +95,8 @@ def add_song_to_queue():
         selected_song = songs[selected_song_index]
         # Add the selected song to the queue
         # Your queue management code here
-        queue.append(selected_song)
+        print(selected_song)
+        # queue.append(selected_song)
         client.queue_song(selected_song)
         return {'message': 'Song added to the queue.'}, 200
 

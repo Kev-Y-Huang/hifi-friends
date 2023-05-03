@@ -60,7 +60,6 @@ function updateQueue() {
         `;
         ul.appendChild(li);
       });
-
       queueContainer.innerHTML = "";
       queueContainer.appendChild(ul);
     })
@@ -99,7 +98,7 @@ document
 document
   .getElementById("addToQueueButton")
   .addEventListener("click", function (event) {
-    event.preventDefault()
+    event.preventDefault();
     const selectedSongIndex = document.querySelector(
       'input[name="selected_song"]:checked'
     ).value;
@@ -126,11 +125,10 @@ window.addEventListener("DOMContentLoaded", function () {
   updateQueue();
 });
 
-setInterval(function() {
+setInterval(function () {
   updateQueue();
 }, 1000);
 
-
-setInterval(function() {
+setInterval(function () {
   updateSongList();
-}, 5000);
+}, 5001);

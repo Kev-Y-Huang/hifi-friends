@@ -107,7 +107,7 @@ class Client:
 
         # Wait for server to respond
         message = self.s.recv(1024).decode()
-        # print(message)
+        print(message)
         return message
 
     def get_audio_data(self):
