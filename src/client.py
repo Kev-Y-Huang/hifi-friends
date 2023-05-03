@@ -95,7 +95,7 @@ class Client:
         self.s.send(pack_opcode(3))
 
         # Wait for server to respond
-        message = self.s.recv(1024).decode().replace(':songs:', '')
+        message = self.s.recv(1024).decode()
         
         print(message)
 
