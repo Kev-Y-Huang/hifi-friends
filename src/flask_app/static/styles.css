@@ -109,3 +109,16 @@ audio {
   justify-content: center;
   display: flex;
 }
+
+
+#playingContainer {
+  align-items: center;
+  justify-content: center;
+  display: flex;
+}
+
+#playingHeader {
+  align-items: center;
+  justify-content: center;
+  display: flex;
+}

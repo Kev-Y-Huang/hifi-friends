@@ -1,4 +1,4 @@
-# Hi-Fi Friends: A Distributed Music Sharing System
+# HiFi-Friends: A Distributed Music Sharing System
 
 ## Description
 

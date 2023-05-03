@@ -10,7 +10,7 @@ import os
 import pyaudio
 
 from utils import queue_rows, setup_logger
-from wire_protocol import unpack_opcode
+from wire_protocol import unpack_opcode, unpack_size
 
 BUFF_SIZE = 65536
 CHUNK = 10*1024
@@ -69,33 +69,28 @@ class Server:
             The socket to receive the file from.
         """
         # TODO use specific wire protocol for file transfer
-        filename_size = c_sock.recv(16).decode()
-        filename_size = int(filename_size, 2)
+        file_name_size = unpack_size(c_sock.recv(16))
+        file_name = c_sock.recv(file_name_size).decode()
+        file_size = unpack_size(c_sock.recv(32))
 
-        filename = c_sock.recv(filename_size).decode()
-        filesize = c_sock.recv(32).decode()
-        filesize = int(filesize, 2)
+        with open('server_files/' + file_name, 'wb') as file_to_write:
+            chunk_size = 4096
 
-        file_to_write = open('server_files/' + filename, 'wb')
-        chunksize = 4096
+            self.logger.info('Receiving file: ' + file_name)
+            if file_name in self.uploaded_files:
+                self.logger.error(
+                    f'A file of the same name {file_name} is already being uploaded. Upload canceled.')
+                return
 
-        self.logger.info('Receiving file: ' + filename)
-        if filename in self.uploaded_files:
-            self.logger.error(
-                f'A file of the same name {filename} is already being uploaded. Upload canceled.')
-            return
-
-        while filesize > 0:
-            if filesize < chunksize:
-                chunksize = filesize
-            data = c_sock.recv(chunksize)
-            file_to_write.write(data)
-            filesize -= len(data)
-
-        file_to_write.close()
+            while file_size > 0:
+                if file_size < chunk_size:
+                    chunk_size = file_size
+                data = c_sock.recv(chunk_size)
+                file_to_write.write(data)
+                file_size -= len(data)
 
         self.logger.info('File received successfully.')
-        self.uploaded_files.append(filename)
+        self.uploaded_files.append(file_name)
 
     def enqueue_song(self, conn):
         """
@@ -155,14 +150,17 @@ class Server:
                     elif opcode == 1:
                         self.logger.info('[1] Receiving audio file.')
                         self.recv_file(sock)
-                    # If the opcode is 2, we are queuing a file
+                    # If the opcode is 2, we are queueing a file
                     elif opcode == 2:
                         self.logger.info('[2] Queuing song.')
                         message = self.enqueue_song(sock)
                         conn.send(message.encode())
-                    # TODO implement the rest of the opcodes
+                    # If the opcode is 3, we are sending the list of available songs
                     elif opcode == 3:
-                        self.logger.info('[3] Playing the next song.')
+                        message = '- ' + '\n- '.join(self.uploaded_files)
+                        conn.send(message.encode())
+                    elif opcode == 4:
+                        self.logger.info('[4] Playing the next song.')
                         if self.song_queue.empty():
                             self.logger.error('No songs in queue.')
                         else:
@@ -171,7 +169,7 @@ class Server:
                             self.now_playing.put(song)
                             self.logger.info('Playing next song.')
                     # TODO implement the rest of the opcodes
-                    elif opcode == 4:
+                    elif opcode == 5:
                         self.logger.info('Need to finish implementation.')
                 # If there is no data, we remove the connection
                 else:
