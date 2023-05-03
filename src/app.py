@@ -9,6 +9,14 @@ import pyaudio
 import socket
 import os
 
+HOST = socket.gethostname() # Server IP address
+TCP_PORT = 1538 
+UDP_PORT = 1539
+
+BUFF_SIZE = 1024
+CHUNK = 1024
+
+
 app = Flask(__name__)
 
 newClient = client.Client()
@@ -80,44 +88,11 @@ def add_song_to_queue():
         # Add the selected song to the queue
         # Your queue management code here
         queue.append(selected_song)
+        newClient.queue_song(selected_song)
         return {'message': 'Song added to the queue.'}, 200
 
     return {'error': 'Invalid song selection.'}, 400
 
-
-p = pyaudio.PyAudio()
-stream = p.open(
-    format=p.get_format_from_width(2),
-    channels=1,
-    rate=44100,
-    output=True
-)
-
-
-HOST = socket.gethostname() # Server IP address
-TCP_PORT = 1538 
-UDP_PORT = 1539
-
-BUFF_SIZE = 1024
-CHUNK = 1024
-
-@app.route('/stream_audio')
-def stream_audio():
-    def generate_audio():
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
-            client_socket.connect((HOST, TCP_PORT))
-            client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
-            message = b'Hello'
-            client_socket.sendto(message, (HOST, UDP_PORT))
-
-            while True:
-                audio_data = client_socket.recv(BUFF_SIZE)
-                if not audio_data:
-                    break
-                yield audio_data
-
-    return Response(generate_audio(), mimetype='audio/x-wav')
-    
 if __name__ == '__main__':
     app.run(debug=True)
+    newClient.run_client()
