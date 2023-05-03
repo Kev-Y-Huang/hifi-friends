@@ -160,9 +160,9 @@ class Server:
                         message = '- ' + '\n- '.join(self.uploaded_files)
                         conn.send(message.encode())
                     elif opcode == 4:
-                        self.logger.info('[4] Playing the next song.')
+                        self.logger.debug('[4] Playing the next song.')
                         if self.song_queue.empty():
-                            self.logger.error('No songs in queue.')
+                            self.logger.debug('No songs in queue.')
                         else:
                             song_path = self.song_queue.get()
                             song = wave.open(song_path)
