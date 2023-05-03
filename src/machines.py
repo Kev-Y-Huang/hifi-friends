@@ -21,6 +21,9 @@ class Machine:
         self.client_udp_port = client_udp_port
         self.internal_port = internal_port
         self.heart_port = heart_port
+        self.conn = None
+        self.accepted = False
+        self.promise_value = 0
 
 
 MACHINE_ZERO = Machine(

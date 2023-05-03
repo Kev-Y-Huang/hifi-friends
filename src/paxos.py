@@ -1,9 +1,11 @@
 import socket
 import time
+
+from src.utils import upload_file
 from wire_protocol import pack_packet
-from machines import MACHINES, get_other_machines, get_other_machines_ids
+from machines import MACHINES, Machine, get_other_machines, get_other_machines_ids
 from collections import defaultdict
-from utils import upload_file
+# from utils import upload_file
 
 
 class PaxServer:
@@ -14,7 +16,7 @@ class PaxServer:
 
 class Paxos:
     def __init__(self, server_id):
-        self.machines = defaultdict(PaxServer)
+        self.machines = (dict(enumerate(MACHINES)))
         self.server_id = server_id
         self.clock = 0
         self.gen_number = 0
@@ -121,8 +123,9 @@ class Paxos:
                 server = self.machines[server_id]
                 print(server_id)
                 if not server.accepted:
-                    print('upload attempt')
-                    print(f'server_{self.server_id}_files/{filename}')
-                    upload_file(server.conn, f'server_{self.server_id}_files/{filename}')
+                    print('server to server upload attempt')
+                    s = socket.socket()
+                    s.connect((server.ip, server.client_tcp_port))
+                    upload_file(s, f'server_{self.server_id}_files/{filename}')
 
 
