@@ -27,10 +27,21 @@ python3 src/app.py
 
 ## Folder Structure
 ```
-├── src                        # All of the source code is here
+├── src                         # All of the source code is here
+|   ├── __init__.py	            # Initializes application from config file
+│   ├── client.py               # Contains the code to support the client
+│   ├── app.py                  # Contains the code for Flask client
+│   ├── server.py               # Contains the code for server
+│   ├── wire_protocol.py        # Contains the code for defining the wire protocol
+│   ├── machines.py             # Contains the code defining the machines and their IPs and ports
+|   └── utils.py                # Defines common functions used by the application
+├── static                      # Supporting assets for the client
+│   ├── script.js               # Supporting JavaScript for the client
+│   ├── sound.gif               # Gif
+|   └── styles.css              # Supporting style file for the client
+├── templates                   # Supporting templates for Flask app
+|   └── index.html              # HTML files
 ├── .gitignore	
-├── requirements_macOS.txt      # Dependencies for Mac
-├── requirements_win64.txt      # Dependencies for Windows
 ├── NOTEBOOK.md                 # Engineering notebook	
 └── README.md                   # README
 ``` 
