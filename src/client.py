@@ -82,6 +82,17 @@ class Client:
         # Wait for server to respond
         message = self.s.recv(1024).decode()
         return message
+    
+    def get_current_queue(self):
+        """
+        Gets the current queue from the server and prints it.
+        """
+        self.s.send(pack_opcode(5))
+
+        # Wait for server to respond
+        message = self.s.recv(1024).decode()
+        print(message)
+        return message
 
     def get_audio_data(self):
         """
@@ -106,8 +117,8 @@ class Client:
             while not self.exit.is_set():
                 if self.audio_q.empty():
                     # TODO implement sending next song request
-                    self.s.send(pack_opcode(4))
-                    time.sleep(1)
+                    # self.s.send(pack_opcode(4))
+                    # time.sleep(1)
                     continue
 
                 print("Playing")

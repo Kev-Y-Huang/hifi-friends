@@ -168,8 +168,14 @@ class Server:
                             song = wave.open(song_path)
                             self.now_playing.put(song)
                             self.logger.info('Playing next song.')
-                    # TODO implement the rest of the opcodes
+                    # If the opcode is 5, we are sending the current queue
                     elif opcode == 5:
+                        now_playing_str = ','.join(str(item) for item in self.now_playing.queue)
+                        song_queue_str = ','.join(str(item) for item in self.song_queue.queue)
+                        message = f"[{now_playing_str},{song_queue_str}]"
+                        conn.send(message.encode())
+                    # TODO implement the rest of the opcodes
+                    elif opcode == 6:
                         self.logger.info('Need to finish implementation.')
                 # If there is no data, we remove the connection
                 else:

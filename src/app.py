@@ -37,7 +37,10 @@ def get_songs():
     '''
     Flask route to update the list of songs, calls the get_updated_songs() function
     '''
-    songs = literal_eval(client.get_song_list())
+    try:
+        songs = literal_eval(client.get_song_list())
+    except:
+        return {'error': 'Unable to retrieve songs'}, 400
     return songs
 
 
@@ -65,6 +68,10 @@ def get_queue():
     '''
     Flask route to update the list of songs, calls the get_updated_songs() function
     '''
+    try:
+        queue = literal_eval(client.get_current_queue())
+    except:
+        return {'error': 'Unable to retrieve queue'}, 400
     return queue
 
 
