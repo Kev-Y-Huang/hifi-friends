@@ -71,6 +71,29 @@ class Client:
 
         print('File Sent')
 
+    def upload_file_flask(self, file):
+        """
+        Upload a file to the server (for Flask application).
+        ...
+
+        Parameters
+        ----------
+        file_path : FileStorage object
+            The file to upload.
+        """
+        self.s.send(pack_opcode(1))
+        
+        file_name = file.filename
+        self.s.send(pack_num(len(file_name), 16))
+        self.s.send(file_name.encode())
+
+        data = file.read()
+
+        self.s.send(pack_num(len(data), 32))
+        self.s.sendall(data)
+
+        print('File Sent')
+
     def queue_song(self, filename):
         """
         Queue a song to be played by the server.
