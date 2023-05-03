@@ -58,8 +58,7 @@ def upload_song():
         # Save the uploaded file to a desired location
         if file.filename in songs:
             return {'error': 'Song already exists.'}, 400
-        file.save(f'server_files/{file.filename}')
-        songs.append(file.filename)
+        client.upload_file(file.filename)
         # Return a success message or relevant data
         return {'message': 'Song uploaded successfully.'}, 200
 
