@@ -95,8 +95,10 @@ class Client:
         self.s.send(pack_opcode(3))
 
         # Wait for server to respond
-        message = self.s.recv(1024).decode()
-        # print(message)
+        message = self.s.recv(1024).decode().replace(':songs:', '')
+        
+        print(message)
+
         return message
 
     def get_current_queue(self):
