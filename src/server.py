@@ -201,12 +201,11 @@ class Server:
         Stream audio to the client.
         """
         p = pyaudio.PyAudio()
-        format = p.get_format_from_width(song.getsampwidth())
 
         while not self.exit.is_set():
             for song in queue_rows(self.now_playing):
                 self.logger.info('Streaming audio.')
-                stream = p.open(format=format,
+                stream = p.open(format=p.get_format_from_width(song.getsampwidth()),
                                 channels=song.getnchannels(),
                                 rate=song.getframerate(),  # TODO need to adjust for different sample rates
                                 input=True,
