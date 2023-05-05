@@ -8,9 +8,8 @@ import time
 
 import pyaudio
 
-from utils import queue_rows
-from wire_protocol import (ActionType, pack_num, pack_opcode, pack_state,
-                           unpack_num, unpack_state)
+from utils import queue_rows, Operation, ActionType
+from wire_protocol import pack_num, pack_opcode, pack_state, unpack_num, unpack_state
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -19,6 +18,23 @@ CLIENT_UPDATE_PORT = 1540
 
 BUFF_SIZE = 65536
 CHUNK = 10*1024
+
+
+class Song:
+    def __init__(self, width=None, sample_rate=None, n_channels=None):
+        self.width = width
+        self.sample_rate = sample_rate
+        self.n_channels = n_channels
+
+        self.frames = queue.Queue()
+
+    def update_metadata(self, width, sample_rate, n_channels):
+        self.width = width
+        self.sample_rate = sample_rate
+        self.n_channels = n_channels
+
+    def add_frame(self, frame):
+        self.frames.put(frame)
 
 
 class Client:
@@ -37,7 +53,7 @@ class Client:
 
         self.exit = threading.Event()
 
-        self.audio_q = queue.Queue()
+        self.song_queue = queue.Queue()
 
         self.stream = None
 
@@ -46,10 +62,6 @@ class Client:
             socket.AF_INET, socket.SOCK_STREAM)
         self.client_update_socket.connect((self.host, self.client_update_port))
         self.next_action = ActionType.PING
-
-        self.width = 2
-        self.sample_rate = 22050
-        self.n_channels = 2
 
         # Keeping track of song and frame index
         self.song_index = 0
@@ -67,7 +79,7 @@ class Client:
         file_path : str
             The path to the file to upload.
         """
-        self.server_tcp.send(pack_opcode(1))
+        self.server_tcp.send(pack_opcode(Operation.UPLOAD))
 
         file_name = os.path.basename(file_path)
         self.server_tcp.send(pack_num(len(file_name), 16))
@@ -89,7 +101,7 @@ class Client:
         file_path : FileStorage object
             The file to upload.
         """
-        self.server_tcp.send(pack_opcode(1))
+        self.server_tcp.send(pack_opcode(Operation.UPLOAD))
 
         file_name = file.filename
         self.server_tcp.send(pack_num(len(file_name), 16))
@@ -112,7 +124,7 @@ class Client:
         filename : str
             The name of the file to queue.
         """
-        self.server_tcp.send(pack_opcode(2))
+        self.server_tcp.send(pack_opcode(Operation.QUEUE))
         self.server_tcp.send(filename.encode())
 
         # Wait for server to respond
@@ -123,7 +135,7 @@ class Client:
         """
         Gets the available songs for queueing from the server and prints them.
         """
-        self.server_tcp.send(pack_opcode(3))
+        self.server_tcp.send(pack_opcode(Operation.LIST))
 
         # Wait for server to respond
         message = self.server_tcp.recv(1024).decode()
@@ -136,7 +148,7 @@ class Client:
         """
         Gets the current queue from the server and prints it.
         """
-        self.server_tcp.send(pack_opcode(4))
+        self.server_tcp.send(pack_opcode(Operation.QUEUED))
 
         # Wait for server to respond
         message = self.server_tcp.recv(1024).decode()
@@ -150,7 +162,7 @@ class Client:
         inputs = [self.server_udp]
         self.server_udp.sendto(b'Connect', (self.host, self.udp_port))
 
-        song_q = queue.Queue()
+        song = Song()
         while not self.exit.is_set():
             read_sockets, _, _ = select.select(inputs, [], [], 0.1)
             for sock in read_sockets:
@@ -159,18 +171,20 @@ class Client:
                 try:
                     # Received audio header
                     if int(frame.decode(), 2) == 0:
-                        self.width = unpack_num(sock.recvfrom(16)[0])
-                        self.sample_rate = unpack_num(sock.recvfrom(16)[0])
-                        self.n_channels = unpack_num(sock.recvfrom(16)[0])
+                        width = unpack_num(sock.recvfrom(16)[0])
+                        sample_rate = unpack_num(sock.recvfrom(16)[0])
+                        n_channels = unpack_num(sock.recvfrom(16)[0])
 
-                        self.audio_q.put(song_q)
-                        song_q = queue.Queue()
+                        song.update_metadata(width, sample_rate, n_channels)
+
+                        self.song_queue.put(song)
+                        song = Song()
                 except:
-                    song_q.put(frame)
+                    song.add_frame(frame)
 
         print("closed")
 
-    def process_song_q(self, song_q):
+    def process_song(self, frames):
         """
         Process the song queue.
         ...
@@ -180,8 +194,7 @@ class Client:
         song_q : queue.Queue
             The queue of song frames to process.
         """
-        # TODO fix this monstrocity
-        for frame in queue_rows(song_q):
+        for frame in queue_rows(frames):
             if self.exit.is_set():
                 return
             # TODO definitely can do this better
@@ -190,7 +203,7 @@ class Client:
                 if self.frame_index < self.server_frame_index:
                     self.frame_index += 1
                     # skip frame
-                    song_q.get()
+                    frames.get()
                 if self.exit.is_set():
                     return
                 time.sleep(0.1)
@@ -205,26 +218,26 @@ class Client:
 
         try:
             while not self.exit.is_set():
-                if self.audio_q.empty():
-                    self.next_action = ActionType.NEXT
+                if self.song_queue.empty():
                     time.sleep(0.1)
                     continue
 
-                song_q = self.audio_q.get()
+                song = self.song_queue.get()
                 self.song_index += 1
 
-                self.stream = p.open(format=p.get_format_from_width(self.width),
-                                     channels=self.n_channels,
-                                     rate=self.sample_rate,
+                self.stream = p.open(format=p.get_format_from_width(song.width),
+                                     channels=song.n_channels,
+                                     rate=song.sample_rate,
                                      output=True,
                                      frames_per_buffer=CHUNK)
 
-                self.process_song_q(song_q)
+                self.process_song(song.frames)
 
                 self.stream.stop_stream()
                 self.stream.close()
                 self.stream = None
-
+        except Exception as e:
+            print(e)
         finally:
             self.server_udp.close()
             p.terminate()
@@ -302,8 +315,8 @@ class Client:
                 elif op_code == '9':
                     # TODO need to implement skip
                     if self.stream:
-                        with self.audio_q.mutex:
-                            self.audio_q.queue.clear()
+                        with self.song_queue.mutex:
+                            self.song_queue.queue.clear()
                         self.next_action = ActionType.PLAY
                 else:
                     print("Invalid Operation Code. Please try again.")
@@ -311,7 +324,6 @@ class Client:
             print(e)
         finally:
             self.exit.set()
-            print(self.exit.is_set())
 
             stream_proc.join()
             get_audio_data_proc.join()

@@ -1,5 +1,6 @@
 import struct
-from enum import Enum
+
+from utils import ActionType, Operation
 
 # Packet format:
 # - 4 byte unsigned integer for data length (N)
@@ -32,46 +33,47 @@ def unpack_packet(packet: bytes) -> tuple:
     # return username if username else "", operation, output
 
 
-def pack_opcode(opcode: int) -> bytes:
-    return struct.pack("!B", opcode)
+def pack_opcode(opcode: Operation) -> bytes:
+    return struct.pack("!B", opcode.value)
 
 
-def unpack_opcode(opcode: bytes) -> int:
-    return struct.unpack("!B", opcode)[0]
+def unpack_opcode(data: bytes) -> Operation:
+    output = struct.unpack("!B", data)[0]
+    return Operation(output)
 
-# Encodes num as a len bit binary
+
 def pack_num(num: int, len: int) -> bytes:
+    """
+    Encodes num as a len bit binary
+    """
     return (bin(num)[2:].zfill(len)).encode()
 
+
 def unpack_num(num: bytes) -> str:
+    """
+    Decodes num from a len bit binary
+    """
     return int(num.decode(), 2)
-# Encodes filename size as 16 bit binary, limit your filename length to 255 bytes
 
 
 def pack_file_name_size(file_name: str) -> bytes:
+    """
+    Encodes filename size as 16 bit binary, limit your filename length to 255 bytes
+    """
     size = bin(len(file_name))[2:].zfill(16)
     return size.encode()
 
-# Encode filesize as 32 bit binary
-
 
 def pack_file_size(file_size: str) -> bytes:
+    """
+    Encodes filesize as 32 bit binary
+    """
     file_size = bin(file_size)[2:].zfill(32)
     return file_size.encode()
 
 
 def unpack_size(size: bytes) -> str:
     return int(size.decode(), 2)
-
-
-class ActionType(Enum):
-    """
-    Enum for the different types of events that can occur.
-    """
-    PING = 0
-    PAUSE = 1
-    PLAY = 2
-    NEXT = 3
 
 
 def pack_state(song_index: int, frame_index: int, action: ActionType) -> bytes:

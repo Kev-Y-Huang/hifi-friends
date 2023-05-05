@@ -8,9 +8,8 @@ import wave
 
 import pyaudio
 
-from utils import queue_rows, setup_logger
-from wire_protocol import (ActionType, pack_num, pack_state, unpack_num,
-                           unpack_opcode, unpack_state)
+from utils import ActionType, Operation, queue_rows, setup_logger
+from wire_protocol import pack_num, pack_state, unpack_num, unpack_opcode, unpack_state
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -51,7 +50,6 @@ class Server:
         self.exit = threading.Event()
 
         self.song_queue = queue.Queue()
-        self.now_playing = queue.Queue()
 
         self.udp_addrs = []
 
@@ -84,7 +82,7 @@ class Server:
             for sock in read_sockets:
                 yield sock
 
-    def recv_file(self, c_sock):
+    def recv_file(self, c_sock: socket.socket):
         """
         Receive a file from the client.
         ...
@@ -104,9 +102,9 @@ class Server:
 
             self.logger.info('Receiving file: ' + file_name)
             if file_name in self.uploaded_files:
-                self.logger.error(
-                    f'A file of the same name {file_name} is already being uploaded. Upload canceled.')
-                return
+                message = f'A file of the same name {file_name} is already being uploaded. Upload canceled.'
+                self.logger.error(message)
+                return message
 
             while file_size > 0:
                 if file_size < chunk_size:
@@ -115,10 +113,14 @@ class Server:
                 file_to_write.write(data)
                 file_size -= len(data)
 
-        self.logger.info('File received successfully.')
         self.uploaded_files.append(file_name)
 
-    def enqueue_song(self, conn):
+        message = 'File received successfully.'
+        self.logger.info('File received successfully.')
+
+        return message
+
+    def enqueue_song(self, conn: socket.socket):
         """
         Enqueue a song to be played.
         ...
@@ -138,7 +140,7 @@ class Server:
             message = f'File {song_name} has not been uploaded or is in the processing of uploading. Queue failed.'
             self.logger.error(message)
         elif os.path.exists(f"server_files/{song_name}"):
-            self.song_queue.put(f"server_files/{song_name}")
+            self.song_queue.put(song_name)
             message = 'Song queued.'
         else:
             message = f'File {song_name} not found.'
@@ -155,12 +157,10 @@ class Server:
         str
             The queue of songs to be played.
         """
-        now_playing_str = ','.join(str(item)
-                                   for item in self.now_playing.queue)
         song_queue_str = ','.join(str(item) for item in self.song_queue.queue)
-        return f"[{now_playing_str},{song_queue_str}]"
+        return f"[{song_queue_str}]"
 
-    def handle_tcp_conn(self, conn):
+    def handle_tcp_conn(self, conn: socket.socket):
         """
         Handle a TCP client connection.
         ...
@@ -175,50 +175,50 @@ class Server:
         self.logger.info('Waiting for incoming TCP requests.')
         try:
             for sock in self.poll_read_sock_no_exit(inputs):
-                # TODO pls fix
                 data = sock.recv(1)
-                # If there is data, we unpack the opcode
-                if data:
-                    # TODO implement better opcode handling
-                    opcode = unpack_opcode(data)
 
-                    # If the opcode is 0, we are receiving a closure request
-                    if opcode == 0:
-                        self.logger.info(
-                            '[0] Receiving client closure request.')
-                        # TODO implement client closure request
-                    # If the opcode is 1, we are receiving a file
-                    elif opcode == 1:
-                        self.logger.info('[1] Receiving audio file.')
-                        self.recv_file(sock)
-                    # If the opcode is 2, we are queueing a file
-                    elif opcode == 2:
-                        self.logger.info('[2] Queuing song.')
-                        message = self.enqueue_song(sock)
-                        conn.send(message.encode())
-                    # If the opcode is 3, we are sending the list of available songs
-                    elif opcode == 3:
-                        message = ':songs:' + str(self.uploaded_files)
-                        conn.send(message.encode())
-                    # If the opcode is 4, we are sending the current queue
-                    elif opcode == 4:
-                        self.logger.debug('[4] Requesting current queue.')
-                        message = ':queue:' + self.get_queue()
-                        conn.send(message.encode())
-                    # TODO implement the rest of the opcodes
-                    elif opcode == 6:
-                        self.logger.info('Need to finish implementation.')
-                # If there is no data, we remove the connection
-                else:
+                # If there is no data, the connection has been closed
+                if not data:
                     break
+            
+                opcode = unpack_opcode(data)
+                message = "No response."
+
+                # If the opcode is 0, we are receiving a closure request
+                if opcode == Operation.CLOSE:
+                    self.logger.info(
+                        '[0] Receiving client closure request.')
+                    # TODO implement client closure request
+                    message = "Close not implemented."
+                # If the opcode is 1, we are receiving a file
+                elif opcode == Operation.UPLOAD:
+                    self.logger.info('[1] Receiving audio file.')
+                    message = self.recv_file(sock)
+                # If the opcode is 2, we are queueing a file
+                elif opcode == Operation.QUEUE:
+                    self.logger.info('[2] Queuing song.')
+                    message = self.enqueue_song(sock)
+                # If the opcode is 3, we are sending the list of available songs
+                elif opcode == Operation.LIST:
+                    self.logger.debug('[3] Requesting available songs.')
+                    message = ':songs:' + str(self.uploaded_files)
+                # If the opcode is 4, we are sending the current queue
+                elif opcode == Operation.QUEUED:
+                    self.logger.debug('[4] Requesting current queue.')
+                    message = ':queue:' + self.get_queue()
+                # TODO implement the rest of the opcodes
+                elif opcode == 6:
+                    self.logger.info('Need to finish implementation.')
+                    
+                # Send the message back to the client
+                conn.send(message.encode())
         except Exception as e:
             self.logger.exception(e)
         finally:
             self.logger.info('Shutting down TCP handler.')
-            for conn in inputs:
-                conn.close()
+            conn.close()
 
-    def send_to_all_udp_addrs(self, data):
+    def send_to_all_udp_addrs(self, data: bytes):
         """
         Send data to all UDP addresses.
         ...
@@ -240,8 +240,9 @@ class Server:
         while not self.exit.is_set():
             # self.pause_playback.wait() was suggested by github copilot so idk if it's right
 
-            for song in queue_rows(self.now_playing):
+            for song_name in queue_rows(self.song_queue):
                 self.logger.info('Streaming audio.')
+                song = wave.open(f"server_files/{song_name}")
                 stream = p.open(format=p.get_format_from_width(song.getsampwidth()),
                                 channels=song.getnchannels(),
                                 rate=song.getframerate(),  # TODO need to adjust for different sample rates
@@ -274,9 +275,8 @@ class Server:
                 self.send_to_all_udp_addrs(pack_num(0, 16))
                 time.sleep(0.01)
 
-                self.logger.info(f'Sending sample rate {width}')
-                self.logger.info(f'Sending sample rate {sample_rate}')
-                self.logger.info(f'Sending sample rate {n_channels}')
+                self.logger.info(
+                    f'Sending width {width}, sample rate {sample_rate}, channels {n_channels}')
 
                 self.send_to_all_udp_addrs(pack_num(width, 16))
                 self.send_to_all_udp_addrs(pack_num(sample_rate, 16))
@@ -288,7 +288,7 @@ class Server:
 
         p.terminate()
 
-    def update_most_recent(self, song_index, frame_index):
+    def update_most_recent(self, song_index: int, frame_index: int):
         """
         Updates the server state to the most recent song and frame index.
         ...
@@ -336,15 +336,6 @@ class Server:
                         elif action == ActionType.PAUSE:
                             self.logger.info('PAUSE')
                             self.pause_playback.set()
-                        elif action == ActionType.NEXT:
-                            self.logger.debug('NEXT')
-                            if self.song_queue.empty():
-                                self.logger.debug('No songs in queue.')
-                            else:
-                                song_path = self.song_queue.get()
-                                song = wave.open(song_path)
-                                self.now_playing.put(song)
-                                self.logger.info('Playing next song.')
 
                         # TODO need a better way to handle this
                         if self.pause_playback.is_set():
