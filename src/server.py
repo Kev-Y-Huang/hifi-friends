@@ -24,13 +24,25 @@ CHUNK = 10*1024
 class Server:
     def __init__(self, host=HOST, tcp_port=TCP_PORT, udp_port=UDP_PORT, client_update_port=CLIENT_UPDATE_PORT):
         self.host = host
+
+        # TCP Setup
         self.tcp_port = tcp_port
-        self.udp_port = udp_port
         self.tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        # UDP Setup
+        self.udp_port = udp_port
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_sock.setsockopt(
             socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
+
+        # Client Update Setup
+        self.client_update_port = client_update_port
+        self.client_update_socket = socket.socket(
+            socket.AF_INET, socket.SOCK_STREAM)
+        self.client_update_socket.setsockopt(
+            socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
         # get list of files in server_files
         self.uploaded_files = os.listdir('server_files')
 
@@ -43,12 +55,6 @@ class Server:
         self.udp_addrs = []
 
         self.pause_playback = threading.Event()
-
-        self.client_update_port = client_update_port
-        self.client_update_socket = socket.socket(
-            socket.AF_INET, socket.SOCK_STREAM)
-        self.client_update_socket.setsockopt(
-            socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     def poll_read_sock_no_exit(self, inputs, timeout=0.1):
         """
@@ -226,6 +232,8 @@ class Server:
         p = pyaudio.PyAudio()
 
         while not self.exit.is_set():
+            # self.pause_playback.wait() was suggested by github copilot so idk if it's right
+
             for song in queue_rows(self.now_playing):
                 self.logger.info('Streaming audio.')
                 stream = p.open(format=p.get_format_from_width(song.getsampwidth()),
@@ -267,7 +275,7 @@ class Server:
                 self.send_to_all_udp_addrs(pack_num(width, 16))
                 self.send_to_all_udp_addrs(pack_num(sample_rate, 16))
                 self.send_to_all_udp_addrs(pack_num(n_channels, 16))
-                
+
                 time.sleep(0.001)
 
                 self.logger.info('Audio streamed successfully.')
@@ -302,7 +310,7 @@ class Server:
                             self.logger.info('PAUSE')
                             self.pause_playback.set()
                         elif data == "NEXT":
-                            self.logger.info('NEXT')
+                            self.logger.debug('NEXT')
                             if self.song_queue.empty():
                                 self.logger.debug('No songs in queue.')
                             else:
