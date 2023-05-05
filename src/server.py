@@ -1,16 +1,16 @@
+import os
 import queue
 import select
 import socket
-import struct
 import threading
 import time
 import wave
-import os
 
 import pyaudio
 
 from utils import queue_rows, setup_logger
-from wire_protocol import unpack_opcode, pack_num, unpack_num
+from wire_protocol import (ActionType, pack_num, pack_state, unpack_num,
+                           unpack_opcode, unpack_state)
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -30,11 +30,12 @@ class Server:
         self.tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-        # UDP Setup
+        # UDP Setup https://gist.github.com/ninedraft/7c47282f8b53ac015c1e326fffb664b5
         self.udp_port = udp_port
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_sock.setsockopt(
             socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
+        self.udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
         # Client Update Setup
         self.client_update_port = client_update_port
@@ -54,6 +55,11 @@ class Server:
 
         self.udp_addrs = []
 
+        # Server state of audio playback
+        self.song_index = 0
+        self.frame_index = 0
+
+        # TODO need better implementation than just pause/play even
         self.pause_playback = threading.Event()
 
     def poll_read_sock_no_exit(self, inputs, timeout=0.1):
@@ -282,6 +288,25 @@ class Server:
 
         p.terminate()
 
+    def update_most_recent(self, song_index, frame_index):
+        """
+        Updates the server state to the most recent song and frame index.
+        ...
+
+        Parameters
+        ----------
+        song_index : int
+            The passed-in song index to check.
+        frame_index : int
+            The passed-in frame index to check.
+        """
+        # Song index takes precedence over frame index
+        is_song_more_recent = song_index > self.song_index
+        is_frame_more_recent = song_index == self.song_index and frame_index >= self.frame_index
+
+        if is_song_more_recent or is_frame_more_recent:
+            self.song_index, self.frame_index = song_index, frame_index
+
     def listen_client_updates(self):
         """
         Listens for client state updates
@@ -301,15 +326,17 @@ class Server:
                 else:
                     data = sock.recv(1024)
                     if data:
-                        data = data.decode()
+                        # Get  song index, frame index, and action from received data
+                        song_index, frame_index, action = unpack_state(data)
+                        self.update_most_recent(song_index, frame_index)
 
-                        if data == "PLAY":
+                        if action == ActionType.PLAY:
                             self.logger.info('PLAY')
                             self.pause_playback.clear()
-                        elif data == "PAUSE":
+                        elif action == ActionType.PAUSE:
                             self.logger.info('PAUSE')
                             self.pause_playback.set()
-                        elif data == "NEXT":
+                        elif action == ActionType.NEXT:
                             self.logger.debug('NEXT')
                             if self.song_queue.empty():
                                 self.logger.debug('No songs in queue.')
@@ -318,14 +345,20 @@ class Server:
                                 song = wave.open(song_path)
                                 self.now_playing.put(song)
                                 self.logger.info('Playing next song.')
-                        sock.send(struct.pack(
-                            "?", self.pause_playback.is_set()))
+
+                        # TODO need a better way to handle this
+                        if self.pause_playback.is_set():
+                            action = ActionType.PAUSE
+                        else:
+                            action = ActionType.PLAY
+                        sock.send(pack_state(self.song_index,
+                                  self.frame_index, action))
                     # If there is no data, then the connection has been closed
                     else:
                         sock.close()
                         inputs.remove(sock)
         except Exception as e:
-            print(e)
+            self.logger.exception(e)
             for conn in inputs:
                 conn.close()
 
