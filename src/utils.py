@@ -24,9 +24,10 @@ class ActionType(Enum):
     """
     Enum for the different types of events that can occur.
     """
-    PAUSE = 0
-    PLAY = 1
-    SKIP = 2
+    PING = 0
+    PAUSE = 1
+    PLAY = 2
+    SKIP = 3
 
 
 def setup_logger(level: int = logging.INFO) -> logging.Logger:

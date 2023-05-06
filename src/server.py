@@ -58,7 +58,7 @@ class Server:
         self.song_index = 0
         self.frame_index = 0
         self.action_mutex = threading.Lock()
-        self.action = None
+        self.action = ActionType.PING
 
         # TODO need better implementation than just pause/play even
         self.pause_playback = threading.Event()
@@ -296,12 +296,10 @@ class Server:
         """
         try:
             while not self.exit.is_set():
-
                 self.action_mutex.acquire()
-                if self.action:
-                    send_to_all_addrs(self.client_update_socket, self.update_udp_addrs, pack_state(
-                        self.song_index, self.frame_index, self.action))
-                    self.action = None
+                send_to_all_addrs(self.client_update_socket, self.update_udp_addrs, pack_state(
+                    self.song_index, self.frame_index, self.action))
+                self.action = ActionType.PING
                 self.action_mutex.release()
 
                 time.sleep(0.01)

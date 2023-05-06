@@ -166,7 +166,7 @@ class Client:
         """
         if self.stream:
             self.server_tcp.send(pack_opcode(Operation.PAUSE))
-            self.stream.stop_stream()
+            self.is_paused = True
         else:
             print("No stream to stop.")
 
@@ -176,7 +176,7 @@ class Client:
         """
         if self.stream:
             self.server_tcp.send(pack_opcode(Operation.PLAY))
-            self.stream.start_stream()
+            self.is_paused = False
         else:
             print("No stream to play.")
 
