@@ -316,13 +316,14 @@ class Client:
 
                 self.server_song_index, self.server_frame_index, action = unpack_state(
                     data)
-
-                if action == ActionType.PAUSE and self.stream.is_active():
-                    self.is_paused = True
-                elif action == ActionType.PLAY and not self.stream.is_active():
-                    self.is_paused = False
-                elif action == ActionType.SKIP:
-                    self.curr_song_frames.queue.clear()
+                
+                if self.stream:
+                    if action == ActionType.PAUSE and self.stream.is_active():
+                        self.is_paused = True
+                    elif action == ActionType.PLAY and not self.stream.is_active():
+                        self.is_paused = False
+                    elif action == ActionType.SKIP:
+                        self.curr_song_frames.queue.clear()
         except Exception:
             print(traceback.format_exc())
         finally:
