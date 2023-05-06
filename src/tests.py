@@ -42,8 +42,8 @@ class TestSong(unittest.TestCase):
 class TestClient(unittest.TestCase):
     def setUp(self):
         self.client = Client()
-        self.mock_socket = MagicMock(spec=socket.socket)
-        self.mock_queue = MagicMock(spec=queue.Queue)
+        self.mock_socket = MagicMock()
+        self.mock_queue = MagicMock()
 
 
     def tearDown(self):
@@ -141,6 +141,20 @@ class TestClient(unittest.TestCase):
         self.client.exit.set()
 
         self.assertIsNone(self.client.server_update())
+
+# class TestClient(unittest.TestCase):
+#     def setUp(self):
+#         self.client = Server()
+#         self.mock_socket = MagicMock(spec=socket.socket)
+#         self.mock_queue = MagicMock(spec=queue.Queue)
+
+
+#     def tearDown(self):
+#         self.client = None
+#         self.mock_socket = None
+#         self.mock_queue = None
+
+
 
 if __name__ == '__main__':
     unittest.main()
