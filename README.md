@@ -14,13 +14,13 @@ We built a server and client using the `socket` and `threading` native Python li
 To run the server
 
 ```bash
-python3 src/server.py
+cd src && python3 server.py
 ```
 
 To run the client
 
 ```bash
-python3 src/app.py
+cd src && python3 app.py
 ```
 
 ## How to run the tests
