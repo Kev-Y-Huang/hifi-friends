@@ -1,8 +1,8 @@
 import logging
+import queue
 import select
 import socket
 import threading
-import queue
 from enum import Enum
 
 # from wire_protocol import pack_opcode
@@ -22,7 +22,7 @@ class Operation(Enum):
     SKIP = 7
 
 
-class ActionType(Enum):
+class Update(Enum):
     """
     Enum for the different types of events that can occur.
     """
@@ -89,7 +89,7 @@ class read_from_q:
         self.q.task_done()
 
 
-def queue_rows(q: queue.Queue, block: bool=False, timeout: int=None):
+def queue_rows(q: queue.Queue, block: bool = False, timeout: int = None):
     """
     Generator that yields rows from a queue.
     ...

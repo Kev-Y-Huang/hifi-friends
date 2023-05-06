@@ -1,6 +1,6 @@
 import struct
 
-from utils import ActionType, Operation
+from utils import Operation, Update
 
 # Packet format:
 # - 4 byte unsigned integer for data length (N)
@@ -56,13 +56,13 @@ def unpack_num(num: bytes) -> str:
     return int(num.decode(), 2)
 
 
-def pack_state(song_index: int, frame_index: int, action: ActionType) -> bytes:
+def pack_state(song_index: int, frame_index: int, action: Update) -> bytes:
     return struct.pack("!III", song_index, frame_index, action.value)
 
 
 def unpack_state(data: bytes) -> tuple:
     song_index, frame_index, action = struct.unpack("!III", data)
-    return song_index, frame_index, ActionType(action)
+    return song_index, frame_index, Update(action)
 
 
 def pack_audio_meta(width: int, sample_rate: int, channels: int) -> bytes:

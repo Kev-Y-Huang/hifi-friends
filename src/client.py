@@ -8,13 +8,14 @@ import traceback
 
 import pyaudio
 
-from utils import ActionType, Operation, poll_read_sock_no_exit, queue_rows
-from wire_protocol import pack_num, pack_opcode, unpack_audio_meta, unpack_state
+from utils import Operation, Update, poll_read_sock_no_exit, queue_rows
+from wire_protocol import (pack_num, pack_opcode, unpack_audio_meta,
+                           unpack_state)
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
-UDP_PORT = 1539
-CLIENT_UPDATE_PORT = 1540
+AUDIO_UDP_PORT = 1539
+UPDATE_UDP_PORT = 1540
 
 BUFF_SIZE = 65536
 CHUNK = 10*1024
@@ -38,17 +39,23 @@ class Song:
 
 
 class Client:
-    def __init__(self, host=HOST, tcp_port=TCP_PORT, udp_port=UDP_PORT, client_update_port=CLIENT_UPDATE_PORT):
+    def __init__(self, host=HOST, tcp_port=TCP_PORT, audio_udp_port=AUDIO_UDP_PORT, update_udp_port=UPDATE_UDP_PORT):
         self.host = host
 
         # TCP connection to server
         self.tcp_port = tcp_port
         self.server_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        # UDP connection to server
-        self.udp_port = udp_port
-        self.server_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.server_udp.setsockopt(
+        # UDP connection for audio
+        self.audio_udp_port = audio_udp_port
+        self.audio_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.audio_udp_sock.setsockopt(
+            socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
+
+        # UDP connection for server updates
+        self.update_udp_port = update_udp_port
+        self.update_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.update_udp_sock.setsockopt(
             socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
 
         self.exit = threading.Event()
@@ -57,13 +64,6 @@ class Client:
         self.curr_song_frames = None
 
         self.stream = None
-
-        # UDP connection for server updates
-        self.client_update_port = client_update_port
-        self.client_update_socket = socket.socket(
-            socket.AF_INET, socket.SOCK_DGRAM)
-        self.client_update_socket.setsockopt(
-            socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
 
         # Keeping track of song and frame index
         self.song_index = 0
@@ -207,15 +207,17 @@ class Client:
         """
         Get audio data from the server.
         """
-        inputs = [self.server_udp]
+        inputs = [self.audio_udp_sock]
 
         try:
-            self.server_udp.sendto(b'Connect', (self.host, self.udp_port))
+            self.audio_udp_sock.sendto(
+                b'Connect', (self.host, self.audio_udp_port))
             for sock in poll_read_sock_no_exit(inputs, self.exit):
                 frame, _ = sock.recvfrom(BUFF_SIZE)
 
                 if len(frame) == 13:
-                    delim, width, sample_rate, channels = unpack_audio_meta(frame)
+                    delim, width, sample_rate, channels = unpack_audio_meta(
+                        frame)
 
                     if delim == 0:
                         song = Song(width, sample_rate, channels)
@@ -226,7 +228,7 @@ class Client:
         except Exception:
             print(traceback.format_exc())
         finally:
-            self.server_udp.close()
+            self.audio_udp_sock.close()
             print('Audio closed')
 
     def process_song(self):
@@ -301,9 +303,9 @@ class Client:
         """
         Update the server with the current state of the audio stream for the client.
         """
-        inputs = [self.client_update_socket]
-        self.client_update_socket.sendto(
-            b'Connect', (self.host, self.client_update_port))
+        inputs = [self.update_udp_sock]
+        self.update_udp_sock.sendto(
+            b'Connect', (self.host, self.update_udp_port))
 
         try:
             for sock in poll_read_sock_no_exit(inputs, self.exit):
@@ -316,16 +318,16 @@ class Client:
                     data)
 
                 if self.stream:
-                    if action == ActionType.PAUSE and self.stream.is_active():
+                    if action == Update.PAUSE and self.stream.is_active():
                         self.is_paused = True
-                    elif action == ActionType.PLAY and not self.stream.is_active():
+                    elif action == Update.PLAY and not self.stream.is_active():
                         self.is_paused = False
-                    elif action == ActionType.SKIP:
+                    elif action == Update.SKIP:
                         self.curr_song_frames.queue.clear()
         except Exception:
             print(traceback.format_exc())
         finally:
-            self.client_update_socket.close()
+            self.update_udp_sock.close()
             print('Server update closed')
 
     def run_client(self):
