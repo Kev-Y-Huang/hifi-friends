@@ -77,14 +77,15 @@ class Server:
         file_name = c_sock.recv(file_name_size).decode()
         file_size = unpack_num(c_sock.recv(32))
 
+        if file_name in self.uploaded_files:
+            message = f'A file of the same name {file_name} is already being uploaded. Upload canceled.'
+            self.logger.error(message)
+            return message
+
         with open('server_files/' + file_name, 'wb') as file_to_write:
             chunk_size = 4096
 
             self.logger.info('Receiving file: ' + file_name)
-            if file_name in self.uploaded_files:
-                message = f'A file of the same name {file_name} is already being uploaded. Upload canceled.'
-                self.logger.error(message)
-                return message
 
             while file_size > 0:
                 if file_size < chunk_size:
