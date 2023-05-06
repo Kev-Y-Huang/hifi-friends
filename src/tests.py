@@ -41,83 +41,106 @@ class TestSong(unittest.TestCase):
 
 class TestClient(unittest.TestCase):
     def setUp(self):
-        pass
+        self.client = Client()
+        self.mock_socket = MagicMock(spec=socket.socket)
+        self.mock_queue = MagicMock(spec=queue.Queue)
 
-    def shutDown(self):
-        pass
 
-    def test_upload_file(self):
-        # self.setUp()
-        # print(self.server.exit.is_set())
-        # print("HERE")
-        # self.shutDown()
-        # print(self.server.exit.is_set())
-        pass
+    def tearDown(self):
+        self.client = None
+        self.mock_socket = None
+        self.mock_queue = None
 
-    # @patch('client.socket.socket')
-    # def test_upload_file_flask(self, mock_socket):
-    #     mock_send = MagicMock()
-    #     mock_socket.return_value.send = mock_send
 
-    #     self.client.upload_file_flask(self.file)
+    @patch('client.socket.socket')
+    def test_upload_file_flask(self, mock_socket):
+        self.setUp()
+        # create object self.file with attribute filename
+        self.file = MagicMock()
+        # Mock send oobject
+        mock_send = MagicMock()
+        mock_socket.return_value.send = mock_send
 
-    #     mock_send.assert_called()
+        self.client.upload_file_flask(self.file)
+        mock_send.assert_called()
+        self.tearDown()
 
-    # @patch('client.socket.socket')
-    # def test_queue_song(self, mock_socket):
-    #     mock_send = MagicMock()
-    #     mock_socket.return_value.send = mock_send
 
-    #     self.client.queue_song(self.file.filename)
+    @patch('client.socket.socket')
+    def test_queue_song(self, mock_socket):
+        self.setUp()
+        self.file = MagicMock()
+        mock_send = MagicMock()
+        mock_socket.return_value.send = mock_send
 
-    #     mock_send.assert_called()
+        self.client.queue_song(self.file.filename)
 
-    # @patch('client.socket.socket')
-    # def test_get_song_list(self, mock_socket):
-    #     mock_recv = MagicMock(return_value=b'test song 1\ntest song 2')
-    #     mock_socket.return_value.recv.return_value = mock_recv()
+        mock_send.assert_called()
+        self.tearDown()
 
-    #     self.client.get_song_list()
 
-    #     mock_socket.return_value.send.assert_called()
+    @patch('client.socket.socket')
+    def test_get_song_list(self, mock_socket):
+        self.setUp()
+        mock_recv = MagicMock(return_value=b'test song 1\ntest song 2')
+        mock_socket.return_value.recv.return_value = mock_recv()
 
-    # @patch('client.socket.socket')
-    # def test_get_current_queue(self, mock_socket):
-    #     mock_recv = MagicMock(return_value=b'test song 1\ntest song 2')
-    #     mock_socket.return_value.recv.return_value = mock_recv()
+        self.client.get_song_list()
 
-    #     self.client.get_current_queue()
+        mock_socket.return_value.send.assert_called()
+        self.tearDown()
 
-    #     mock_socket.return_value.send.assert_called()
 
-    # @patch('client.select.select')
-    # @patch('client.socket.socket')
-    # def test_get_audio_data(self, mock_socket, mock_select):
-    #     mock_exit = MagicMock()
-    #     self.client.exit = mock_exit
+    def test_get_current_queue(self):
+        self.client.server_tcp = self.mock_socket
+        self.client.server_tcp.recv.return_value = b'Test queue'
+        self.assertEqual(self.client.get_current_queue(), 'Test queue')
+        self.client.server_tcp.recv.assert_called_once_with(1024)
+        self.client.server_tcp.send.assert_called_once_with(b'\x04')
 
-    #     mock_recvfrom = MagicMock(return_value=(b'\x00', 'address'))
-    #     mock_decode = MagicMock(return_value='0')
-    #     mock_unpack_num = MagicMock(return_value=44100)
-    #     mock_song_queue_put = MagicMock()
 
-    #     mock_socket.return_value.recvfrom = mock_recvfrom
-    #     mock_socket.return_value.setsockopt = MagicMock()
-    #     mock_decode.side_effect = [0, 1]
-    #     mock_unpack_num.side_effect = [16, 16, 2]
+    def test_pause_stream(self):
+        self.client.stream = True
+        self.client.server_tcp = self.mock_socket
+        self.client.server_tcp.recv.return_value = b'Test pause'
+        self.client.pause_stream()
+        self.assertTrue(self.client.is_paused)
+        self.client.server_tcp.recv.assert_called_once_with(1024)
+        self.client.server_tcp.send.assert_called_once_with(b'\x05')
 
-    #     mock_select.return_value = ([mock_socket.return_value], [], [])
-    #     self.client.song_queue.put = mock_song_queue_put
 
-    #     self.client.get_audio_data()
+    def test_get_audio_data(self):
+        self.client.audio_udp_sock = self.mock_socket
+        self.mock_socket.sendto.return_value = None
+        self.mock_socket.recvfrom.return_value = (b'frame_data', ('127.0.0.1', 1234))
+        self.mock_queue.put.return_value = None
+        self.client.get_audio_data()
+        self.mock_socket.sendto.assert_called_once_with(b'Connect', (self.client.host, self.client.audio_udp_port))
+    
+    
+    def test_process_song(self):
+        self.client.stream = MagicMock()
+        self.client.curr_song_frames = MagicMock()
+        self.client.exit.set()
 
-    #     mock_socket.return_value.sendto.assert_called_once_with(b'Connect', (self.client.host, self.client.udp_port))
-    #     mock_exit.is_set.assert_called()
-    #     mock_song_queue_put.assert_called_once()
+        self.assertIsNone(self.client.process_song())
 
-    # def tearDown(self):
-    #     self.client.exit.set()
 
+    @patch('pyaudio.PyAudio')
+    def test_stream_audio(self, mock_pyaudio):
+        self.client.song_queue.put(MagicMock())
+        self.client.exit.set()
+
+        self.assertIsNone(self.client.stream_audio())
+
+
+    def test_server_update(self):
+        mock_sock = MagicMock()
+        mock_sock.recvfrom.return_value = (b'state', '127.0.0.1')
+        self.client.update_udp_sock = mock_sock
+        self.client.exit.set()
+
+        self.assertIsNone(self.client.server_update())
 
 if __name__ == '__main__':
     unittest.main()
