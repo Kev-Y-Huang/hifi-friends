@@ -9,7 +9,7 @@ import pyaudio
 
 from utils import (ActionType, Operation, poll_read_sock_no_exit, queue_rows,
                    send_to_all_addrs, setup_logger)
-from wire_protocol import pack_num, pack_state, unpack_num, unpack_opcode
+from wire_protocol import pack_state, unpack_num, unpack_opcode, pack_audio_meta
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -244,24 +244,12 @@ class Server:
                 stream.stop_stream()
                 stream.close()
                 song.close()
-                # c_sock.close() was suggested by github copilot so idk if it's right
 
                 # Send audio header information with all 0s delimiter
-                send_to_all_addrs(
-                    self.udp_sock, self.audio_udp_addrs, pack_num(0, 16))
-                time.sleep(0.01)
-
                 self.logger.info(
                     f'Sending width {width}, sample rate {sample_rate}, channels {n_channels}')
-
-                send_to_all_addrs(
-                    self.udp_sock, self.audio_udp_addrs, pack_num(width, 16))
-                send_to_all_addrs(
-                    self.udp_sock, self.audio_udp_addrs, pack_num(sample_rate, 16))
-                send_to_all_addrs(
-                    self.udp_sock, self.audio_udp_addrs, pack_num(n_channels, 16))
-
-                time.sleep(0.001)
+                data = pack_audio_meta(width, sample_rate, n_channels)
+                send_to_all_addrs(self.udp_sock, self.audio_udp_addrs, data)
 
                 self.logger.info('Audio streamed successfully.')
 
