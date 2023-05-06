@@ -58,6 +58,7 @@ class Server:
         self.song_index = 0
         self.frame_index = 0
         self.action_mutex = threading.Lock()
+        self.action = None
 
         # TODO need better implementation than just pause/play even
         self.pause_playback = threading.Event()

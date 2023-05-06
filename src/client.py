@@ -305,10 +305,6 @@ class Client:
                 self.server_song_index, self.server_frame_index, action = unpack_state(
                     data)
 
-                if action != ActionType.PING:
-                    print(self.server_song_index,
-                          self.server_frame_index, action)
-
                 if action == ActionType.PAUSE and self.stream.is_active():
                     self.is_paused = True
                 elif action == ActionType.PLAY and not self.stream.is_active():
@@ -363,19 +359,7 @@ class Client:
                 elif op_code == '6':
                     self.play_stream()
                 elif op_code == '7':
-                    if self.stream:
-                        self.is_paused = True
-                        self.next_action = ActionType.PAUSE
-                elif op_code == '8':
-                    if self.stream:
-                        self.is_paused = False
-                        self.next_action = ActionType.PLAY
-                elif op_code == '9':
-                    # TODO need to implement skip
-                    if self.stream:
-                        with self.song_queue.mutex:
-                            self.song_queue.queue.clear()
-                        self.next_action = ActionType.PLAY
+                    self.skip_song()
                 else:
                     print("Invalid Operation Code. Please try again.")
         except Exception as e:
