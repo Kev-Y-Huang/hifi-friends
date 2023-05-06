@@ -80,6 +80,6 @@ def pack_state(song_index: int, frame_index: int, action: ActionType) -> bytes:
     return struct.pack("!III", song_index, frame_index, action.value)
 
 
-def unpack_state(state: bytes) -> tuple:
-    song_index, frame_index, action = struct.unpack("!III", state)
+def unpack_state(data: bytes) -> tuple:
+    song_index, frame_index, action = struct.unpack("!III", data)
     return song_index, frame_index, ActionType(action)

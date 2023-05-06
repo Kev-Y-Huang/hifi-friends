@@ -1,6 +1,5 @@
 import os
 import queue
-import select
 import socket
 import threading
 import time
@@ -8,8 +7,10 @@ import wave
 
 import pyaudio
 
-from utils import ActionType, Operation, queue_rows, setup_logger
-from wire_protocol import pack_num, pack_state, unpack_num, unpack_opcode, unpack_state
+from utils import (ActionType, Operation, poll_read_sock_no_exit, queue_rows,
+                   send_to_all_addrs, setup_logger)
+from wire_protocol import (pack_num, pack_state, unpack_num, unpack_opcode,
+                           unpack_state)
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -34,14 +35,13 @@ class Server:
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_sock.setsockopt(
             socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
-        self.udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
         # Client Update Setup
         self.client_update_port = client_update_port
         self.client_update_socket = socket.socket(
-            socket.AF_INET, socket.SOCK_STREAM)
+            socket.AF_INET, socket.SOCK_DGRAM)
         self.client_update_socket.setsockopt(
-            socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
 
         # get list of files in server_files
         self.uploaded_files = os.listdir('server_files')
@@ -51,36 +51,16 @@ class Server:
 
         self.song_queue = queue.Queue()
 
-        self.udp_addrs = []
+        self.audio_udp_addrs = []
+        self.update_udp_addrs = []
 
         # Server state of audio playback
         self.song_index = 0
         self.frame_index = 0
+        self.action_mutex = threading.Lock()
 
         # TODO need better implementation than just pause/play even
         self.pause_playback = threading.Event()
-
-    def poll_read_sock_no_exit(self, inputs, timeout=0.1):
-        """
-        Generator that polls the read sockets while the exit event is not set.
-        ...
-
-        Parameters
-        ----------
-        inputs : list
-            The list of sockets to poll.
-        timeout : float
-            The timeout for the select call.
-
-        Yields
-        ------
-        socket.socket
-            A socket that is ready to be read from.
-        """
-        while not self.exit.is_set():
-            read_sockets, _, _ = select.select(inputs, [], [], timeout)
-            for sock in read_sockets:
-                yield sock
 
     def recv_file(self, c_sock: socket.socket):
         """
@@ -174,42 +154,52 @@ class Server:
 
         self.logger.info('Waiting for incoming TCP requests.')
         try:
-            for sock in self.poll_read_sock_no_exit(inputs):
+            for sock in poll_read_sock_no_exit(inputs, self.exit):
                 data = sock.recv(1)
 
                 # If there is no data, the connection has been closed
                 if not data:
                     break
-            
+
                 opcode = unpack_opcode(data)
                 message = "No response."
 
-                # If the opcode is 0, we are receiving a closure request
                 if opcode == Operation.CLOSE:
                     self.logger.info(
                         '[0] Receiving client closure request.')
                     # TODO implement client closure request
                     message = "Close not implemented."
-                # If the opcode is 1, we are receiving a file
                 elif opcode == Operation.UPLOAD:
                     self.logger.info('[1] Receiving audio file.')
                     message = self.recv_file(sock)
-                # If the opcode is 2, we are queueing a file
                 elif opcode == Operation.QUEUE:
                     self.logger.info('[2] Queuing song.')
                     message = self.enqueue_song(sock)
-                # If the opcode is 3, we are sending the list of available songs
                 elif opcode == Operation.LIST:
-                    self.logger.debug('[3] Requesting available songs.')
+                    self.logger.info('[3] Requesting available songs.')
                     message = ':songs:' + str(self.uploaded_files)
-                # If the opcode is 4, we are sending the current queue
                 elif opcode == Operation.QUEUED:
-                    self.logger.debug('[4] Requesting current queue.')
+                    self.logger.info('[4] Requesting current queue.')
                     message = ':queue:' + self.get_queue()
+                elif opcode == Operation.PAUSE:
+                    self.logger.info('[5] Pausing audio.')
+                    self.action_mutex.acquire()
+                    self.action = ActionType.PAUSE
+                    self.action_mutex.release()
+                elif opcode == Operation.PLAY:
+                    self.logger.info('[6] Playing audio.')
+                    self.action_mutex.acquire()
+                    self.action = ActionType.PLAY
+                    self.action_mutex.release()
+                elif opcode == Operation.SKIP:
+                    self.logger.info('[7] Skipping audio.')
+                    self.action_mutex.acquire()
+                    self.action = ActionType.SKIP
+                    self.action_mutex.release()
                 # TODO implement the rest of the opcodes
                 elif opcode == 6:
                     self.logger.info('Need to finish implementation.')
-                    
+
                 # Send the message back to the client
                 conn.send(message.encode())
         except Exception as e:
@@ -217,19 +207,6 @@ class Server:
         finally:
             self.logger.info('Shutting down TCP handler.')
             conn.close()
-
-    def send_to_all_udp_addrs(self, data: bytes):
-        """
-        Send data to all UDP addresses.
-        ...
-
-        Parameters
-        ----------
-        data : bytes
-            The data to send.
-        """
-        for addr in self.udp_addrs:
-            self.udp_sock.sendto(data, addr)
 
     def stream_audio(self):
         """
@@ -257,7 +234,8 @@ class Server:
                     cnt = 0
                     while not self.exit.is_set():
                         data = song.readframes(CHUNK)
-                        self.send_to_all_udp_addrs(data)
+                        send_to_all_addrs(
+                            self.udp_sock, self.audio_udp_addrs, data)
                         # Here you can adjust it according to how fast you want to send data keep it > 0
                         time.sleep(0.001)
 
@@ -272,15 +250,19 @@ class Server:
                 # c_sock.close() was suggested by github copilot so idk if it's right
 
                 # Send audio header information with all 0s delimiter
-                self.send_to_all_udp_addrs(pack_num(0, 16))
+                send_to_all_addrs(
+                    self.udp_sock, self.audio_udp_addrs, pack_num(0, 16))
                 time.sleep(0.01)
 
                 self.logger.info(
                     f'Sending width {width}, sample rate {sample_rate}, channels {n_channels}')
 
-                self.send_to_all_udp_addrs(pack_num(width, 16))
-                self.send_to_all_udp_addrs(pack_num(sample_rate, 16))
-                self.send_to_all_udp_addrs(pack_num(n_channels, 16))
+                send_to_all_addrs(
+                    self.udp_sock, self.audio_udp_addrs, pack_num(width, 16))
+                send_to_all_addrs(
+                    self.udp_sock, self.audio_udp_addrs, pack_num(sample_rate, 16))
+                send_to_all_addrs(
+                    self.udp_sock, self.audio_udp_addrs, pack_num(n_channels, 16))
 
                 time.sleep(0.001)
 
@@ -307,51 +289,24 @@ class Server:
         if is_song_more_recent or is_frame_more_recent:
             self.song_index, self.frame_index = song_index, frame_index
 
-    def listen_client_updates(self):
+    def send_client_updates(self):
         """
-        Listens for client state updates
+        Sends client state updates
         """
-        self.client_update_socket.bind((self.host, self.client_update_port))
-        self.client_update_socket.listen(5)
-
-        inputs = [server.client_update_socket]
-
         try:
-            for sock in self.poll_read_sock_no_exit(inputs):
-                # If the socket is the server socket, accept as a connection
-                if sock == self.client_update_socket:
-                    client, _ = sock.accept()
-                    inputs.append(client)
-                # Otherwise, read the data from the socket
-                else:
-                    data = sock.recv(1024)
-                    if data:
-                        # Get  song index, frame index, and action from received data
-                        song_index, frame_index, action = unpack_state(data)
-                        self.update_most_recent(song_index, frame_index)
+            while not self.exit.is_set():
 
-                        if action == ActionType.PLAY:
-                            self.logger.info('PLAY')
-                            self.pause_playback.clear()
-                        elif action == ActionType.PAUSE:
-                            self.logger.info('PAUSE')
-                            self.pause_playback.set()
+                self.action_mutex.acquire()
+                if self.action:
+                    send_to_all_addrs(self.client_update_socket, self.update_udp_addrs, pack_state(
+                        self.song_index, self.frame_index, self.action))
+                    self.action = None
+                self.action_mutex.release()
 
-                        # TODO need a better way to handle this
-                        if self.pause_playback.is_set():
-                            action = ActionType.PAUSE
-                        else:
-                            action = ActionType.PLAY
-                        sock.send(pack_state(self.song_index,
-                                  self.frame_index, action))
-                    # If there is no data, then the connection has been closed
-                    else:
-                        sock.close()
-                        inputs.remove(sock)
+                time.sleep(0.01)
         except Exception as e:
             self.logger.exception(e)
-            for conn in inputs:
-                conn.close()
+            self.client_update_socket.close()
 
     def run_server(self):
         """
@@ -362,23 +317,25 @@ class Server:
         # Bind tcp and udp sockets to ports
         self.tcp_sock.bind((socket.gethostname(), self.tcp_port))
         self.udp_sock.bind((socket.gethostname(), self.udp_port))
+        self.client_update_socket.bind(
+            (socket.gethostname(), self.client_update_port))
 
         # Listen for incoming connections
         self.tcp_sock.listen(5)
 
         client_update_proc = threading.Thread(
-            target=self.listen_client_updates, args=())
+            target=self.send_client_updates, args=())
         client_update_proc.start()
 
         stream_proc = threading.Thread(target=self.stream_audio, args=())
         stream_proc.start()
 
-        inputs = [self.tcp_sock, self.udp_sock]
+        inputs = [self.tcp_sock, self.udp_sock, self.client_update_socket]
         procs = [stream_proc, client_update_proc]
 
         self.logger.info('Waiting for incoming connections')
         try:
-            for sock in self.poll_read_sock_no_exit(inputs):
+            for sock in poll_read_sock_no_exit(inputs, self.exit):
                 if sock == self.tcp_sock:
                     conn, addr = sock.accept()
 
@@ -394,9 +351,16 @@ class Server:
                     _, addr = sock.recvfrom(BUFF_SIZE)
 
                     self.logger.info(
-                        f'[+] UDP connected to {addr[0]} ({addr[1]})')
+                        f'[+] Audio UDP connected to {addr[0]} ({addr[1]})')
 
-                    self.udp_addrs.append(addr)
+                    self.audio_udp_addrs.append(addr)
+                elif sock == self.client_update_socket:
+                    _, addr = sock.recvfrom(BUFF_SIZE)
+
+                    self.logger.info(
+                        f'[+] Update UDP connected to {addr[0]} ({addr[1]})')
+
+                    self.update_udp_addrs.append(addr)
                 # Otherwise, read the data from the socket
                 else:
                     # TODO pls fix
@@ -406,8 +370,11 @@ class Server:
                     else:
                         sock.close()
                         inputs.remove(sock)
+        except Exception as e:
+            self.logger.exception(e)
         except KeyboardInterrupt:
             self.logger.info('Shutting down server.')
+        finally:
             self.exit.set()
 
             for proc in procs:

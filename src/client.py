@@ -1,15 +1,15 @@
 import os
 import queue
-import select
 import socket
 import sys
 import threading
 import time
+import traceback
 
 import pyaudio
 
-from utils import queue_rows, Operation, ActionType
-from wire_protocol import pack_num, pack_opcode, pack_state, unpack_num, unpack_state
+from utils import ActionType, Operation, poll_read_sock_no_exit, queue_rows
+from wire_protocol import pack_num, pack_opcode, unpack_num, unpack_state
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -54,14 +54,16 @@ class Client:
         self.exit = threading.Event()
 
         self.song_queue = queue.Queue()
+        self.curr_song_frames = None
 
         self.stream = None
 
+        # UDP connection for server updates
         self.client_update_port = client_update_port
         self.client_update_socket = socket.socket(
-            socket.AF_INET, socket.SOCK_STREAM)
-        self.client_update_socket.connect((self.host, self.client_update_port))
-        self.next_action = ActionType.PING
+            socket.AF_INET, socket.SOCK_DGRAM)
+        self.client_update_socket.setsockopt(
+            socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
 
         # Keeping track of song and frame index
         self.song_index = 0
@@ -155,6 +157,37 @@ class Client:
         print(message)
         return message
 
+    def pause_stream(self):
+        """
+        Stops the stream.
+        """
+        if self.stream:
+            self.server_tcp.send(pack_opcode(Operation.PAUSE))
+            self.stream.stop_stream()
+        else:
+            print("No stream to stop.")
+
+    def play_stream(self):
+        """
+        Plays the stream.
+        """
+        if self.stream:
+            self.server_tcp.send(pack_opcode(Operation.PLAY))
+            self.stream.start_stream()
+        else:
+            print("No stream to play.")
+
+    def skip_song(self):
+        """
+        Skips the current song.
+        """
+        if self.stream:
+            self.server_tcp.send(pack_opcode(Operation.SKIP))
+            with self.curr_song_frames.mutex:
+                self.curr_song_frames.queue.clear()
+        else:
+            print("No song to skip.")
+
     def get_audio_data(self):
         """
         Get audio data from the server.
@@ -163,28 +196,26 @@ class Client:
         self.server_udp.sendto(b'Connect', (self.host, self.udp_port))
 
         song = Song()
-        while not self.exit.is_set():
-            read_sockets, _, _ = select.select(inputs, [], [], 0.1)
-            for sock in read_sockets:
-                frame, _ = sock.recvfrom(BUFF_SIZE)
+        for sock in poll_read_sock_no_exit(inputs, self.exit):
+            frame, _ = sock.recvfrom(BUFF_SIZE)
 
-                try:
-                    # Received audio header
-                    if int(frame.decode(), 2) == 0:
-                        width = unpack_num(sock.recvfrom(16)[0])
-                        sample_rate = unpack_num(sock.recvfrom(16)[0])
-                        n_channels = unpack_num(sock.recvfrom(16)[0])
+            try:
+                # Received audio header
+                if int(frame.decode(), 2) == 0:
+                    width = unpack_num(sock.recvfrom(16)[0])
+                    sample_rate = unpack_num(sock.recvfrom(16)[0])
+                    n_channels = unpack_num(sock.recvfrom(16)[0])
 
-                        song.update_metadata(width, sample_rate, n_channels)
+                    song.update_metadata(width, sample_rate, n_channels)
 
-                        self.song_queue.put(song)
-                        song = Song()
-                except:
-                    song.add_frame(frame)
+                    self.song_queue.put(song)
+                    song = Song()
+            except:
+                song.add_frame(frame)
 
         print("closed")
 
-    def process_song(self, frames):
+    def process_song(self):
         """
         Process the song queue.
         ...
@@ -194,7 +225,7 @@ class Client:
         song_q : queue.Queue
             The queue of song frames to process.
         """
-        for frame in queue_rows(frames):
+        for frame in queue_rows(self.curr_song_frames):
             if self.exit.is_set():
                 return
             # TODO definitely can do this better
@@ -203,7 +234,7 @@ class Client:
                 if self.frame_index < self.server_frame_index:
                     self.frame_index += 1
                     # skip frame
-                    frames.get()
+                    self.curr_song_frames.get()
                 if self.exit.is_set():
                     return
                 time.sleep(0.1)
@@ -231,13 +262,14 @@ class Client:
                                      output=True,
                                      frames_per_buffer=CHUNK)
 
-                self.process_song(song.frames)
+                self.curr_song_frames = song.frames
+                self.process_song()
 
                 self.stream.stop_stream()
                 self.stream.close()
                 self.stream = None
-        except Exception as e:
-            print(e)
+        except Exception:
+            print(traceback.format_exc())
         finally:
             self.server_udp.close()
             p.terminate()
@@ -247,24 +279,32 @@ class Client:
         """
         Update the server with the current state of the audio stream for the client.
         """
-        try:
-            while not self.exit.is_set():
-                time.sleep(0.1)
-                self.client_update_socket.send(pack_state(
-                    self.song_index, self.frame_index, self.next_action))
-                self.next_action = ActionType.PING
+        inputs = [self.client_update_socket]
+        self.client_update_socket.sendto(
+            b'Connect', (self.host, self.client_update_port))
 
-                data = self.client_update_socket.recv(12)
+        try:
+            for sock in poll_read_sock_no_exit(inputs, self.exit):
+                data, _ = sock.recvfrom(BUFF_SIZE)
+
+                if not data:
+                    break
+
                 self.server_song_index, self.server_frame_index, action = unpack_state(
                     data)
 
-                if self.stream:
-                    if action == ActionType.PAUSE and self.stream.is_active():
-                        self.stream.stop_stream()
-                    elif action == ActionType.PLAY and not self.stream.is_active():
-                        self.stream.start_stream()
-        except Exception as e:
-            print(e)
+                if action != ActionType.PING:
+                    print(self.server_song_index,
+                          self.server_frame_index, action)
+
+                if action == ActionType.PAUSE and self.stream.is_active():
+                    self.stream.stop_stream()
+                elif action == ActionType.PLAY and not self.stream.is_active():
+                    self.stream.start_stream()
+                elif action == ActionType.SKIP:
+                    self.curr_song_frames.queue.clear()
+        except Exception:
+            print(traceback.format_exc())
         finally:
             self.client_update_socket.close()
             print('Server update closed')
@@ -304,20 +344,14 @@ class Client:
                     self.queue_song(filename)
                 elif op_code == '3':
                     self.get_song_list()
+                elif op_code == '4':
+                    self.get_current_queue()
+                elif op_code == '5':
+                    self.pause_stream()
+                elif op_code == '6':
+                    self.play_stream()
                 elif op_code == '7':
-                    if self.stream:
-                        self.stream.stop_stream()
-                        self.next_action = ActionType.PAUSE
-                elif op_code == '8':
-                    if self.stream:
-                        self.stream.start_stream()
-                        self.next_action = ActionType.PLAY
-                elif op_code == '9':
-                    # TODO need to implement skip
-                    if self.stream:
-                        with self.song_queue.mutex:
-                            self.song_queue.queue.clear()
-                        self.next_action = ActionType.PLAY
+                    self.skip_song()
                 else:
                     print("Invalid Operation Code. Please try again.")
         except Exception as e:

@@ -1,6 +1,7 @@
-from enum import Enum
 import logging
-import os
+import select
+import threading
+from enum import Enum
 
 # from wire_protocol import pack_opcode
 
@@ -23,9 +24,9 @@ class ActionType(Enum):
     """
     Enum for the different types of events that can occur.
     """
-    PING = 0
-    PAUSE = 1
-    PLAY = 2
+    PAUSE = 0
+    PLAY = 1
+    SKIP = 2
 
 
 def setup_logger(level: int = logging.INFO) -> logging.Logger:
@@ -98,7 +99,7 @@ def queue_rows(q, block=False, timeout=None):
         Whether to block until an item is available.
     timeout : int
         The timeout for blocking.
-    
+
     Yields
     ------
     list
@@ -107,6 +108,44 @@ def queue_rows(q, block=False, timeout=None):
     while not q.empty():
         with read_from_q(q, block, timeout) as row:
             yield row
+
+
+def poll_read_sock_no_exit(inputs, exit: threading.Event(), timeout=0.1):
+    """
+    Generator that polls the read sockets while the exit event is not set.
+    ...
+
+    Parameters
+    ----------
+    inputs : list
+        The list of sockets to poll.
+    timeout : float
+        The timeout for the select call.
+
+    Yields
+    ------
+    socket.socket
+        A socket that is ready to be read from.
+    """
+    while not exit.is_set():
+        read_sockets, _, _ = select.select(inputs, [], [], timeout)
+        for sock in read_sockets:
+            yield sock
+
+
+def send_to_all_addrs(sock, addrs, data: bytes):
+    """
+    Send data to all UDP addresses.
+    ...
+
+    Parameters
+    ----------
+    data : bytes
+        The data to send.
+    """
+    for addr in addrs:
+        sock.sendto(data, addr)
+
 
 # def upload_file(sock, file_path):
 #     """
