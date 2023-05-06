@@ -227,6 +227,12 @@ class Server:
                 width = song.getsampwidth()
                 sample_rate = song.getframerate()
                 n_channels = song.getnchannels()
+                
+                self.logger.info(
+                    f'Sending width {width}, sample rate {sample_rate}, channels {n_channels}')
+                data = pack_audio_meta(width, sample_rate, n_channels)
+                send_to_all_addrs(self.udp_sock, self.audio_udp_addrs, data)
+                
                 while not self.exit.is_set():
                     cnt = 0
                     while not self.exit.is_set():
@@ -244,12 +250,6 @@ class Server:
                 stream.stop_stream()
                 stream.close()
                 song.close()
-
-                # Send audio header information with all 0s delimiter
-                self.logger.info(
-                    f'Sending width {width}, sample rate {sample_rate}, channels {n_channels}')
-                data = pack_audio_meta(width, sample_rate, n_channels)
-                send_to_all_addrs(self.udp_sock, self.audio_udp_addrs, data)
 
                 self.logger.info('Audio streamed successfully.')
 

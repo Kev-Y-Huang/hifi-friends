@@ -208,7 +208,6 @@ class Client:
         Get audio data from the server.
         """
         inputs = [self.server_udp]
-        song = Song()
 
         try:
             self.server_udp.sendto(b'Connect', (self.host, self.udp_port))
@@ -219,12 +218,10 @@ class Client:
                     delim, width, sample_rate, channels = unpack_audio_meta(frame)
 
                     if delim == 0:
-                        song.update_metadata(width, sample_rate, channels)
-
+                        song = Song(width, sample_rate, channels)
                         self.song_queue.put(song)
-                        song = Song()
                         continue
-                    
+
                 song.add_frame(frame)
         except Exception:
             print(traceback.format_exc())
