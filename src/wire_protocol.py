@@ -56,26 +56,6 @@ def unpack_num(num: bytes) -> str:
     return int(num.decode(), 2)
 
 
-def pack_file_name_size(file_name: str) -> bytes:
-    """
-    Encodes filename size as 16 bit binary, limit your filename length to 255 bytes
-    """
-    size = bin(len(file_name))[2:].zfill(16)
-    return size.encode()
-
-
-def pack_file_size(file_size: str) -> bytes:
-    """
-    Encodes filesize as 32 bit binary
-    """
-    file_size = bin(file_size)[2:].zfill(32)
-    return file_size.encode()
-
-
-def unpack_size(size: bytes) -> str:
-    return int(size.decode(), 2)
-
-
 def pack_state(song_index: int, frame_index: int, action: ActionType) -> bytes:
     return struct.pack("!III", song_index, frame_index, action.value)
 

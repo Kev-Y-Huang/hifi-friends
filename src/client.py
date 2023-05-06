@@ -71,6 +71,9 @@ class Client:
         self.server_song_index = 0
         self.server_frame_index = 0
 
+        # Keeps track of whether audio is paused or not for everybody
+        self.is_paused = False
+
     def upload_file(self, file_path):
         """
         Upload a file to the server.
@@ -237,9 +240,18 @@ class Client:
                     self.curr_song_frames.get()
                 if self.exit.is_set():
                     return
+                # Start the steam again if someone hit play
+                if not self.is_paused and self.stream:
+                    self.stream.start_stream()
                 time.sleep(0.1)
             self.frame_index += 1
-            self.stream.write(frame)
+
+            # Stop the stream if someone paused
+            if self.is_paused and not self.stream.is_stopped():
+                self.stream.stop_stream()
+            # Write frame to the stream otherwise
+            else:
+                self.stream.write(frame)
 
     def stream_audio(self):
         """
@@ -298,9 +310,9 @@ class Client:
                           self.server_frame_index, action)
 
                 if action == ActionType.PAUSE and self.stream.is_active():
-                    self.stream.stop_stream()
+                    self.is_paused = True
                 elif action == ActionType.PLAY and not self.stream.is_active():
-                    self.stream.start_stream()
+                    self.is_paused = False
                 elif action == ActionType.SKIP:
                     self.curr_song_frames.queue.clear()
         except Exception:
@@ -351,7 +363,19 @@ class Client:
                 elif op_code == '6':
                     self.play_stream()
                 elif op_code == '7':
-                    self.skip_song()
+                    if self.stream:
+                        self.is_paused = True
+                        self.next_action = ActionType.PAUSE
+                elif op_code == '8':
+                    if self.stream:
+                        self.is_paused = False
+                        self.next_action = ActionType.PLAY
+                elif op_code == '9':
+                    # TODO need to implement skip
+                    if self.stream:
+                        with self.song_queue.mutex:
+                            self.song_queue.queue.clear()
+                        self.next_action = ActionType.PLAY
                 else:
                     print("Invalid Operation Code. Please try again.")
         except Exception as e:
