@@ -1,6 +1,8 @@
 import logging
 import select
+import socket
 import threading
+import queue
 from enum import Enum
 
 # from wire_protocol import pack_opcode
@@ -62,7 +64,7 @@ def setup_logger(level: int = logging.INFO) -> logging.Logger:
 
 
 class read_from_q:
-    def __init__(self, q, block=False, timeout=None):
+    def __init__(self, q: queue.Queue, block=False, timeout=None):
         """
         Context manager for reading from a queue.
         ...
@@ -87,7 +89,7 @@ class read_from_q:
         self.q.task_done()
 
 
-def queue_rows(q, block=False, timeout=None):
+def queue_rows(q: queue.Queue, block: bool=False, timeout: int=None):
     """
     Generator that yields rows from a queue.
     ...
@@ -111,7 +113,7 @@ def queue_rows(q, block=False, timeout=None):
             yield row
 
 
-def poll_read_sock_no_exit(inputs, exit: threading.Event(), timeout=0.1):
+def poll_read_sock_no_exit(inputs: list, exit: threading.Event, timeout=0.1):
     """
     Generator that polls the read sockets while the exit event is not set.
     ...
@@ -120,6 +122,8 @@ def poll_read_sock_no_exit(inputs, exit: threading.Event(), timeout=0.1):
     ----------
     inputs : list
         The list of sockets to poll.
+    exit : threading.Event()
+        The event to check for exiting.
     timeout : float
         The timeout for the select call.
 
@@ -131,16 +135,21 @@ def poll_read_sock_no_exit(inputs, exit: threading.Event(), timeout=0.1):
     while not exit.is_set():
         read_sockets, _, _ = select.select(inputs, [], [], timeout)
         for sock in read_sockets:
-            yield sock
+            if not exit.is_set():
+                yield sock
 
 
-def send_to_all_addrs(sock, addrs, data: bytes):
+def send_to_all_addrs(sock: socket.socket, addrs: list, data: bytes):
     """
     Send data to all UDP addresses.
     ...
 
     Parameters
     ----------
+    sock : socket.socket
+        The socket to send from.
+    addrs : list
+        The list of addresses to send to.
     data : bytes
         The data to send.
     """

@@ -13,15 +13,15 @@ from wire_protocol import pack_num, pack_state, unpack_num, unpack_opcode
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
-UDP_PORT = 1539
-CLIENT_UPDATE_PORT = 1540
+AUDIO_UDP_PORT = 1539
+UPDATE_UDP_PORT = 1540
 
 BUFF_SIZE = 65536
 CHUNK = 10*1024
 
 
 class Server:
-    def __init__(self, host=HOST, tcp_port=TCP_PORT, udp_port=UDP_PORT, client_update_port=CLIENT_UPDATE_PORT):
+    def __init__(self, host=HOST, tcp_port=TCP_PORT, audio_udp_port=AUDIO_UDP_PORT, update_udp_port=UPDATE_UDP_PORT):
         self.host = host
 
         # TCP Setup
@@ -30,16 +30,15 @@ class Server:
         self.tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         # UDP Setup https://gist.github.com/ninedraft/7c47282f8b53ac015c1e326fffb664b5
-        self.udp_port = udp_port
+        self.audio_udp_port = audio_udp_port
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_sock.setsockopt(
             socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
 
         # Client Update Setup
-        self.client_update_port = client_update_port
-        self.client_update_socket = socket.socket(
-            socket.AF_INET, socket.SOCK_DGRAM)
-        self.client_update_socket.setsockopt(
+        self.update_udp_port = update_udp_port
+        self.update_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.update_udp_sock.setsockopt(
             socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
 
         # get list of files in server_files
@@ -58,9 +57,6 @@ class Server:
         self.frame_index = 0
         self.action_mutex = threading.Lock()
         self.action = ActionType.PING
-
-        # TODO need better implementation than just pause/play even
-        self.pause_playback = threading.Event()
 
     def recv_file(self, c_sock: socket.socket):
         """
@@ -218,18 +214,15 @@ class Server:
         p = pyaudio.PyAudio()
 
         while not self.exit.is_set():
-            # self.pause_playback.wait() was suggested by github copilot so idk if it's right
-
             for song_name in queue_rows(self.song_queue):
                 self.logger.info('Streaming audio.')
                 song = wave.open(f"server_files/{song_name}")
                 stream = p.open(format=p.get_format_from_width(song.getsampwidth()),
                                 channels=song.getnchannels(),
-                                rate=song.getframerate(),  # TODO need to adjust for different sample rates
+                                rate=song.getframerate(),
                                 input=True,
                                 frames_per_buffer=CHUNK)
 
-                # TODO just fix this :/
                 width = song.getsampwidth()
                 sample_rate = song.getframerate()
                 n_channels = song.getnchannels()
@@ -299,7 +292,7 @@ class Server:
         try:
             while not self.exit.is_set():
                 self.action_mutex.acquire()
-                send_to_all_addrs(self.client_update_socket, self.update_udp_addrs, pack_state(
+                send_to_all_addrs(self.update_udp_sock, self.update_udp_addrs, pack_state(
                     self.song_index, self.frame_index, self.action))
                 self.action = ActionType.PING
                 self.action_mutex.release()
@@ -307,7 +300,7 @@ class Server:
                 time.sleep(0.01)
         except Exception as e:
             self.logger.exception(e)
-            self.client_update_socket.close()
+            self.update_udp_sock.close()
 
     def run_server(self):
         """
@@ -317,9 +310,8 @@ class Server:
 
         # Bind tcp and udp sockets to ports
         self.tcp_sock.bind((socket.gethostname(), self.tcp_port))
-        self.udp_sock.bind((socket.gethostname(), self.udp_port))
-        self.client_update_socket.bind(
-            (socket.gethostname(), self.client_update_port))
+        self.udp_sock.bind((socket.gethostname(), self.audio_udp_port))
+        self.update_udp_sock.bind((socket.gethostname(), self.update_udp_port))
 
         # Listen for incoming connections
         self.tcp_sock.listen(5)
@@ -331,7 +323,7 @@ class Server:
         stream_proc = threading.Thread(target=self.stream_audio, args=())
         stream_proc.start()
 
-        inputs = [self.tcp_sock, self.udp_sock, self.client_update_socket]
+        inputs = [self.tcp_sock, self.udp_sock, self.update_udp_sock]
         procs = [stream_proc, client_update_proc]
 
         self.logger.info('Waiting for incoming connections')
@@ -347,7 +339,6 @@ class Server:
                         target=self.handle_tcp_conn, args=(conn,))
                     t.start()
                     procs.append(t)
-                # If the socket is the server socket, accept as a connection
                 elif sock == self.udp_sock:
                     _, addr = sock.recvfrom(BUFF_SIZE)
 
@@ -355,7 +346,7 @@ class Server:
                         f'[+] Audio UDP connected to {addr[0]} ({addr[1]})')
 
                     self.audio_udp_addrs.append(addr)
-                elif sock == self.client_update_socket:
+                elif sock == self.update_udp_sock:
                     _, addr = sock.recvfrom(BUFF_SIZE)
 
                     self.logger.info(
@@ -364,13 +355,8 @@ class Server:
                     self.update_udp_addrs.append(addr)
                 # Otherwise, read the data from the socket
                 else:
-                    # TODO pls fix
-                    data = sock.recv(1024)
-                    if data:
-                        self.logger.info(f'Received data: {data}')
-                    else:
-                        sock.close()
-                        inputs.remove(sock)
+                    sock.close()
+                    inputs.remove(sock)
         except Exception as e:
             self.logger.exception(e)
         except KeyboardInterrupt:
