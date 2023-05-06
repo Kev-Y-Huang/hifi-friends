@@ -244,7 +244,7 @@ class Server:
                     if self.exit.is_set():
                         break
 
-                    data = stream.read(CHUNK)
+                    data = song.readframes(CHUNK)
                     send_to_all_addrs(
                         self.audio_udp_sock, self.audio_udp_addrs, data)
                     # Here you can adjust it according to how fast you want to send data keep it > 0
