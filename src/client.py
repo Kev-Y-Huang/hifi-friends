@@ -9,7 +9,7 @@ import traceback
 import pyaudio
 
 from utils import ActionType, Operation, poll_read_sock_no_exit, queue_rows
-from wire_protocol import pack_num, pack_opcode, unpack_num, unpack_state
+from wire_protocol import pack_num, pack_opcode, unpack_audio_meta, unpack_state
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -208,27 +208,26 @@ class Client:
         Get audio data from the server.
         """
         inputs = [self.server_udp]
-        self.server_udp.sendto(b'Connect', (self.host, self.udp_port))
 
-        song = Song()
-        for sock in poll_read_sock_no_exit(inputs, self.exit):
-            frame, _ = sock.recvfrom(BUFF_SIZE)
+        try:
+            self.server_udp.sendto(b'Connect', (self.host, self.udp_port))
+            for sock in poll_read_sock_no_exit(inputs, self.exit):
+                frame, _ = sock.recvfrom(BUFF_SIZE)
 
-            try:
-                # Received audio header
-                if int(frame.decode(), 2) == 0:
-                    width = unpack_num(sock.recvfrom(16)[0])
-                    sample_rate = unpack_num(sock.recvfrom(16)[0])
-                    n_channels = unpack_num(sock.recvfrom(16)[0])
+                if len(frame) == 13:
+                    delim, width, sample_rate, channels = unpack_audio_meta(frame)
 
-                    song.update_metadata(width, sample_rate, n_channels)
+                    if delim == 0:
+                        song = Song(width, sample_rate, channels)
+                        self.song_queue.put(song)
+                        continue
 
-                    self.song_queue.put(song)
-                    song = Song()
-            except:
                 song.add_frame(frame)
-
-        print("closed")
+        except Exception:
+            print(traceback.format_exc())
+        finally:
+            self.server_udp.close()
+            print('Audio closed')
 
     def process_song(self):
         """
@@ -274,7 +273,7 @@ class Client:
         try:
             while not self.exit.is_set():
                 if self.song_queue.empty():
-                    time.sleep(0.1)
+                    time.sleep(0.01)
                     continue
 
                 song = self.song_queue.get()
@@ -295,9 +294,8 @@ class Client:
         except Exception:
             print(traceback.format_exc())
         finally:
-            self.server_udp.close()
             p.terminate()
-            print('Audio closed')
+            print('Stream closed')
 
     def server_update(self):
         """
@@ -316,7 +314,7 @@ class Client:
 
                 self.server_song_index, self.server_frame_index, action = unpack_state(
                     data)
-                
+
                 if self.stream:
                     if action == ActionType.PAUSE and self.stream.is_active():
                         self.is_paused = True

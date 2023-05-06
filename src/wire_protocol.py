@@ -63,3 +63,11 @@ def pack_state(song_index: int, frame_index: int, action: ActionType) -> bytes:
 def unpack_state(data: bytes) -> tuple:
     song_index, frame_index, action = struct.unpack("!III", data)
     return song_index, frame_index, ActionType(action)
+
+
+def pack_audio_meta(width: int, sample_rate: int, channels: int) -> bytes:
+    return struct.pack("!BIII", 0, width, sample_rate, channels)
+
+
+def unpack_audio_meta(data: bytes) -> tuple:
+    return struct.unpack("!BIII", data)
