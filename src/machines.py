@@ -1,4 +1,6 @@
 from typing import List
+import socket
+IP = socket.gethostname()
 
 class Machine:
     """
@@ -10,17 +12,17 @@ class Machine:
         self,
         id: int,
         ip: str,
-        client_tcp_port: int,
-        client_udp_port: int,
-        internal_port: int,
-        heart_port: int
+        tcp_port: int,
+        audio_udp_port: int,
+        update_udp_port: int,
+        internal_port: int
     ) -> None:
         self.id = id
         self.ip = ip
-        self.client_tcp_port = client_tcp_port
-        self.client_udp_port = client_udp_port
+        self.tcp_port = tcp_port
+        self.audio_udp_port = audio_udp_port
+        self.update_udp_port = update_udp_port
         self.internal_port = internal_port
-        self.heart_port = heart_port
         self.conn = None
         self.accepted = False
         self.promise_value = 0
@@ -29,32 +31,32 @@ class Machine:
 MACHINE_ZERO = Machine(
     id=0,
     # ip="localhost",
-    ip="10.250.0.195",
-    client_tcp_port=26201,
-    client_udp_port=26202,
-    internal_port=26203,
-    heart_port=26204,
+    ip=IP,
+    tcp_port=6201,
+    audio_udp_port=6202,
+    update_udp_port=6203,
+    internal_port=6204
 )
 
 MACHINE_ONE = Machine(
     id=1,
     # ip="localhost",
-    ip="10.250.0.195",
-    client_tcp_port=26211,
-    client_udp_port=26212,
-    internal_port=26213,
-    heart_port=26214,
+    ip=IP,
+    tcp_port=6211,
+    audio_udp_port=6212,
+    update_udp_port=6213,
+    internal_port=6214
 )
 
-# MACHINE_TWO = Machine(
-#     id=2,
-#     ip="localhost",
-#     # ip="10.250.0.195",
-#     client_tcp_port=26221,
-#     client_udp_port=26222,
-#     internal_port=26223,
-#     heart_port=26224,
-# )
+MACHINE_TWO = Machine(
+    id=1,
+    # ip="localhost",
+    ip=IP,
+    tcp_port=6221,
+    audio_udp_port=6222,
+    update_udp_port=6223,
+    internal_port=6224
+)
 
 # Create a mapping from machine name to information about it
 # MACHINES = [MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO]

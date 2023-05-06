@@ -1,22 +1,26 @@
-import math
+import os
 import queue
-import select
 import socket
 import threading
+import time
 import wave
-import os
 
 import pyaudio
 import argparse
 
+from utils import (ActionType, Operation, poll_read_sock_no_exit, queue_rows,
+                   send_to_all_addrs, setup_logger)
+from wire_protocol import pack_num, pack_state, unpack_num, unpack_opcode
+from machines import MACHINES, get_other_machines
 from music_service import User
-from utils import queue_rows, setup_logger
 from wire_protocol import unpack_opcode, pack_packet, unpack_packet
-from queue import Queue
 from paxos import *
 
+
+HOST = socket.gethostname()
+
 BUFF_SIZE = 65536
-CHUNK = 10 * 1024
+CHUNK = 10*1024
 
 
 class Server:
@@ -25,58 +29,49 @@ class Server:
         self.machines = get_other_machines(server_id)
         self.machine = MACHINES[server_id]
 
-        # Setup client tcp socket
+        # TCP Setup
         self.tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.tcp_sock.bind((self.machine.ip, self.machine.client_tcp_port))
-        self.tcp_sock.listen(5)
 
-        # Setup client udp socket
+        # UDP Setup https://gist.github.com/ninedraft/7c47282f8b53ac015c1e326fffb664b5
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
-        self.udp_sock.bind((self.machine.ip, self.machine.client_udp_port))
+        self.udp_sock.setsockopt(
+            socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
 
-        # Get list of files in server_files
+        # Client Update Setup
+        self.update_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.update_udp_sock.setsockopt(
+            socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
+
+        # Internal
+        self.internal_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.internal_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        # get list of files in server_files
         self.uploaded_files = os.listdir(f'server_{self.server_id}_files')
+
+        self.logger = setup_logger()
+        self.exit = threading.Event()
+
+        self.song_queue = queue.Queue()
+
+        self.audio_udp_addrs = []
+        self.update_udp_addrs = []
+
+        # Server state of audio playback
+        self.song_index = 0
+        self.frame_index = 0
+        self.action_mutex = threading.Lock()
+        self.action = ActionType.PING
 
         # Paxos
         self.filename = None
         self.operation = None
         self.accept_operation = ""
         self.paxos = Paxos(server_id)
-        self.paxos.machines = {machine.id: machine for machine in get_other_machines(server_id)}
+        self.paxos.machines = get_other_machines(server_id)
 
-        # Internal Ops Queue
-        self.queue = Queue()
-
-        self.logger = setup_logger()
-        self.exit = threading.Event()
-        self.song_queue = queue.Queue()
-        self.udp_addrs = []
-
-    def poll_read_sock_no_exit(self, inputs, timeout=0.1):
-        """
-        Generator that polls the read sockets while the exit event is not set.
-        ...
-
-        Parameters
-        ----------
-        inputs : list
-            The list of sockets to poll.
-        timeout : float
-            The timeout for the select call.
-
-        Yields
-        ------
-        socket.socket
-            A socket that is ready to be read from.
-        """
-        while not self.exit.is_set():
-            read_sockets, _, _ = select.select(inputs, [], [], timeout)
-            for sock in read_sockets:
-                yield sock
-
-    def recv_file(self, c_sock, replicate=False):
+    def recv_file(self, c_sock: socket.socket, replicate=True):
         """
         Receive a file from the client.
         ...
@@ -87,40 +82,78 @@ class Server:
             The socket to receive the file from.
         """
         # TODO use specific wire protocol for file transfer
-        filename_size = c_sock.recv(16).decode()
-        filename_size = int(filename_size, 2)
+        file_name_size = unpack_num(c_sock.recv(16))
+        file_name = c_sock.recv(file_name_size).decode()
+        file_size = unpack_num(c_sock.recv(32))
 
-        filename = c_sock.recv(filename_size).decode()
-        filesize = c_sock.recv(32).decode()
-        filesize = int(filesize, 2)
+        if file_name in self.uploaded_files:
+            message = f'A file of the same name {file_name} is already being uploaded. Upload canceled.'
+            self.logger.error(message)
+            return message
 
-        file_to_write = open(f'server_{self.server_id}_files/' + filename, 'wb')
-        chunksize = 4096
+        with open(f'server_{self.server_id}_files/' + file_name, 'wb') as file_to_write:
+            chunk_size = 4096
 
-        self.logger.info('Receiving file: ' + filename)
-        if filename in self.uploaded_files:
-            self.logger.error(f'A file of the same name {filename} is already being uploaded. Upload canceled.')
-            return
+            self.logger.info('Receiving file: ' + file_name)
 
-        while filesize > 0:
-            if filesize < chunksize:
-                chunksize = filesize
-            data = c_sock.recv(chunksize)
-            file_to_write.write(data)
-            filesize -= len(data)
+            while file_size > 0:
+                if file_size < chunk_size:
+                    chunk_size = file_size
+                data = c_sock.recv(chunk_size)
+                file_to_write.write(data)
+                file_size -= len(data)
 
-        file_to_write.close()
+        self.uploaded_files.append(file_name)
 
+        message = 'File received successfully.'
         self.logger.info('File received successfully.')
-        self.uploaded_files.append(filename)
-
-        # TODO: Initiate Paxos
-        # self.paxos.send_prepare()
 
         if replicate:
-            self.paxos.commit_op(filename, 'upload')
+            self.paxos.commit_op(file_name, 'upload')
 
-    def handle_tcp_conn(self, conn):
+        return message
+
+    def enqueue_song(self, conn: socket.socket):
+        """
+        Enqueue a song to be played.
+        ...
+
+        Parameters
+        ----------
+        conn : socket.socket
+            The socket to receive the song name from.
+
+        Returns
+        -------
+        str
+            A message to send back to the client.
+        """
+        song_name = conn.recv(1024).decode()
+        if song_name not in self.uploaded_files:
+            message = f'File {song_name} has not been uploaded or is in the processing of uploading. Queue failed.'
+            self.logger.error(message)
+        elif os.path.exists(f"server_{self.server_id}_files/{song_name}"):
+            self.song_queue.put(song_name)
+            message = 'Song queued.'
+        else:
+            message = f'File {song_name} not found.'
+            self.logger.error(message)
+        return message
+
+    def get_queue(self):
+        """
+        Get the queue of songs to be played.
+        ...
+
+        Returns
+        -------
+        str
+            The queue of songs to be played.
+        """
+        song_queue_str = ','.join(str(item) for item in self.song_queue.queue)
+        return f"[{song_queue_str}]"
+
+    def handle_tcp_conn(self, conn: socket.socket):
         """
         Handle a TCP client connection.
         ...
@@ -134,246 +167,245 @@ class Server:
 
         self.logger.info('Waiting for incoming TCP requests.')
         try:
-            for sock in self.poll_read_sock_no_exit(inputs):
-                # TODO pls fix
+            for sock in poll_read_sock_no_exit(inputs, self.exit):
                 data = sock.recv(1)
-                # If there is data, we unpack the opcode
-                if data:
-                    # TODO implement better opcode handling
-                    opcode = unpack_opcode(data)
 
-                    # If the opcode is 0, we are receiving a closure request
-                    if opcode == 0:
-                        self.logger.info(
-                            '[0] Receiving client closure request.')
-                        # TODO implement client closure request
-                    # If the opcode is 1, we are receiving a file
-                    elif opcode == 1:
-                        self.logger.info('[1] Receiving audio file.')
-                        self.recv_file(sock, replicate=True)
-                    # If the opcode is 2, we are queuing a file
-                    elif opcode == 2:
-                        self.logger.info('[2] Queuing next song.')
-                        song_name = sock.recv(1024).decode()
-                        if os.path.exists(f"server_{self.server_id}_files/{song_name}"):
-                            song = wave.open(f"server_{self.server_id}_files/{song_name}")
-                            self.song_queue.put(song)
-                            message = 'Song queued.'
-                        else:
-                            self.logger.error(f'File {song_name}.wav not found.')
-                            message = 'File not found.'
-                        conn.send(message.encode())
-                    # TODO implement the rest of the opcodes
-                    elif opcode == 3:
-                        self.logger.info('Need to finish implementation.')
-                    elif opcode == 5:
-                        self.logger.info('[1] Receiving audio file.')
-                        self.recv_file(sock, replicate=False)
-                # If there is no data, we remove the connection
-                else:
-                    # TODO pls fix
-                    data = sock.recv(1)
-                    # If there is data, we unpack the opcode
-                    if data:
-                        # TODO implement better opcode handling
-                        opcode = unpack_opcode(data)
+                # If there is no data, the connection has been closed
+                if not data:
+                    break
+                print(data.decode())
+                opcode = unpack_opcode(data)
+                message = "No response."
 
-                        # If the opcode is 0, we are receiving a closure request
-                        if opcode == 0:
-                            self.logger.info('[0] Receiving client closure request.')
-                            self.recv_file(sock)
-                        # If the opcode is 1, we are receiving a file
-                        elif opcode == 1:
-                            self.logger.info('[1] Receiving audio file.')
-                            self.recv_file(sock)
-                        # If the opcode is 2, we are queuing a file
-                        elif opcode == 2:
-                            self.logger.info('[2] Queuing next song.')
-                            song_name = sock.recv(1024).decode()
-                            if song_name not in self.uploaded_files:
-                                self.logger.error(
-                                    f'File {song_name} has not been uploaded or is in the processing of uploading. Queue failed.')
-                                continue
-                            if os.path.exists(f"server_{self.server_id}_files/{song_name}"):
-                                song = wave.open(f"server_{self.server_id}_files/{song_name}")
-                            else:
-                                self.logger.error(f'File {song_name} not found.')
-                                continue
-                            self.song_queue.put(song)
-                        # TODO implement the rest of the opcodes
-                        elif opcode == 3:
-                            self.logger.info('Need to finish implementation.')
-                    # If there is no data, we remove the connection
-                    else:
-                        sock.close()
-                        inputs.remove(sock)
+                if opcode == Operation.CLOSE:
+                    self.logger.info(
+                        '[0] Receiving client closure request.')
+                    # TODO implement client closure request
+                    message = "Close not implemented."
+                elif opcode == Operation.UPLOAD:
+                    self.logger.info('[1] Receiving audio file.')
+                    message = self.recv_file(sock)
+
+                elif opcode == Operation.QUEUE:
+                    self.logger.info('[2] Queuing song.')
+                    message = self.enqueue_song(sock)
+                elif opcode == Operation.LIST:
+                    self.logger.info('[3] Requesting available songs.')
+                    message = ':songs:' + str(self.uploaded_files)
+                elif opcode == Operation.QUEUED:
+                    self.logger.info('[4] Requesting current queue.')
+                    message = ':queue:' + self.get_queue()
+                elif opcode == Operation.PAUSE:
+                    self.logger.info('[5] Pausing audio.')
+                    self.action_mutex.acquire()
+                    self.action = ActionType.PAUSE
+                    self.action_mutex.release()
+                    message = 'Audio paused.'
+                elif opcode == Operation.PLAY:
+                    self.logger.info('[6] Playing audio.')
+                    self.action_mutex.acquire()
+                    self.action = ActionType.PLAY
+                    self.action_mutex.release()
+                    message = 'Audio playing.'
+                elif opcode == Operation.SKIP:
+                    self.logger.info('[7] Skipping audio.')
+                    self.action_mutex.acquire()
+                    self.action = ActionType.SKIP
+                    self.action_mutex.release()
+                    message = 'Song skipped.'
+                # TODO implement the rest of the opcodes
+                elif opcode == 6:
+                    self.logger.info('Need to finish implementation.')
+
+                elif opcode == Operation.SERVER_UPLOAD:
+                    self.logger.info('[1] Receiving audio file from server.')
+                    message = self.recv_file(sock, False)
+
+                # Send the message back to the client
+                conn.send(message.encode())
         except Exception as e:
             self.logger.exception(e)
         finally:
             self.logger.info('Shutting down TCP handler.')
-            self.exit.set()
-            for conn in inputs:
-                conn.close()
-
-    def send_to_all_udp_addrs(self, data):
-        """
-        Send data to all UDP addresses.
-        ...
-
-        Parameters
-        ----------
-        data : bytes
-            The data to send.
-        """
-        for addr in self.udp_addrs:
-            self.udp_sock.sendto(data, addr)
+            conn.close()
 
     def stream_audio(self):
         """
         Stream audio to the client.
         """
+        p = pyaudio.PyAudio()
+
         while not self.exit.is_set():
-            for song in queue_rows(self.song_queue):
+            for song_name in queue_rows(self.song_queue):
                 self.logger.info('Streaming audio.')
-                p = pyaudio.PyAudio()
+                song = wave.open(f"server_{self.server_id}_files/{song_name}")
                 stream = p.open(format=p.get_format_from_width(song.getsampwidth()),
                                 channels=song.getnchannels(),
-                                rate=song.getframerate(),  # TODO need to adjust for different sample rates
+                                rate=song.getframerate(),
                                 input=True,
                                 frames_per_buffer=CHUNK)
 
-                # TODO just fix this :/
+                width = song.getsampwidth()
                 sample_rate = song.getframerate()
+                n_channels = song.getnchannels()
                 while not self.exit.is_set():
-                    DATA_SIZE = math.ceil(song.getnframes() / CHUNK)
-                    DATA_SIZE = str(DATA_SIZE).encode()
-                    self.logger.info(
-                        f'Sending data size {song.getnframes() / sample_rate}')
-                    self.send_to_all_udp_addrs(DATA_SIZE)
                     cnt = 0
                     while not self.exit.is_set():
                         data = song.readframes(CHUNK)
-                        self.send_to_all_udp_addrs(data)
+                        send_to_all_addrs(
+                            self.udp_sock, self.audio_udp_addrs, data)
                         # Here you can adjust it according to how fast you want to send data keep it > 0
                         time.sleep(0.001)
 
-                        if cnt > (song.getnframes() / CHUNK):
+                        if cnt > (song.getnframes()/CHUNK):
                             break
                         cnt += 1
 
                     break
                 stream.stop_stream()
                 stream.close()
-                p.terminate()
                 song.close()
                 # c_sock.close() was suggested by github copilot so idk if it's right
 
+                # Send audio header information with all 0s delimiter
+                send_to_all_addrs(
+                    self.udp_sock, self.audio_udp_addrs, pack_num(0, 16))
+                time.sleep(0.01)
+
+                self.logger.info(
+                    f'Sending width {width}, sample rate {sample_rate}, channels {n_channels}')
+
+                send_to_all_addrs(
+                    self.udp_sock, self.audio_udp_addrs, pack_num(width, 16))
+                send_to_all_addrs(
+                    self.udp_sock, self.audio_udp_addrs, pack_num(sample_rate, 16))
+                send_to_all_addrs(
+                    self.udp_sock, self.audio_udp_addrs, pack_num(n_channels, 16))
+
+                time.sleep(0.001)
+
                 self.logger.info('Audio streamed successfully.')
 
-    def listen_internal(self):
-        """
-        Listens to the other servers to get state updates from the systems
-        """
-        self.internal_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.internal_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.internal_socket.bind((self.machine.ip, self.machine.internal_port))
-        self.internal_socket.listen(5)
+        p.terminate()
 
-        inputs = [server.internal_socket]
+    def update_most_recent(self, song_index: int, frame_index: int):
+        """
+        Updates the server state to the most recent song and frame index.
+        ...
+
+        Parameters
+        ----------
+        song_index : int
+            The passed-in song index to check.
+        frame_index : int
+            The passed-in frame index to check.
+        """
+        # Song index takes precedence over frame index
+        is_song_more_recent = song_index > self.song_index
+        is_frame_more_recent = song_index == self.song_index and frame_index >= self.frame_index
+
+        if is_song_more_recent or is_frame_more_recent:
+            self.song_index, self.frame_index = song_index, frame_index
+
+    def send_client_updates(self):
+        """
+        Sends client state updates
+        """
+        try:
+            while not self.exit.is_set():
+                self.action_mutex.acquire()
+                send_to_all_addrs(self.update_udp_sock, self.update_udp_addrs, pack_state(
+                    self.song_index, self.frame_index, self.action))
+                self.action = ActionType.PING
+                self.action_mutex.release()
+
+                time.sleep(0.01)
+        except Exception as e:
+            self.logger.exception(e)
+            self.update_udp_sock.close()
+
+    def send_server_updates(self):
+        for server in self.paxos.machines:
+            self.paxos.commit_op(filename, 'upload')
+
+
+    def listen_internal(self, conn):
+        """
+        Listens to the other servers to get paxos state updates from the systems
+        """
+        inputs = [conn]
 
         try:
-            while True:
-                for sock in self.poll_read_sock_no_exit(inputs):
-                    # If the socket is the server socket, accept as a connection
-                    if sock == self.internal_socket:
-                        client, _ = sock.accept()
-                        inputs.append(client)
-                    # Otherwise, read the data from the socket
-                    else:
-                        data = sock.recv(1024)
-                        if data:
-                            username, gen_number, op_code, contents = unpack_packet(data)
-                            print(f'gen_number to put into queue: {gen_number}')
-                            curr_user = User(sock, username, gen_number)
-                            self.queue.put((curr_user, int(op_code), contents))
-                        # If there is no data, then the connection has been closed
-                        else:
-                            sock.close()
-                            inputs.remove(sock)
-        except Exception as e:
-            print(e)
-            for conn in inputs:
-                conn.close()
+            for sock in poll_read_sock_no_exit(inputs, self.exit):
+                # If the socket is the server socket, accept as a connection
+                if sock == self.internal_socket:
+                    client, _ = sock.accept()
+                    inputs.append(client)
+                # Otherwise, read the data from the socket
+                else:
+                    data = sock.recv(1024)
+                    # If there is no data, then the connection has been closed
+                    if not data:
+                        break
+                    username, gen_number, op_code, contents = unpack_packet(data)
+                    print(f'gen_number to put into queue: {gen_number}')
+                    curr_user = User(sock, username, gen_number)
+                    # self.queue.put((curr_user, int(op_code), contents))
 
-    def handle_queue(self):
-        """
-        Handles the queue of messages from the clients
-        """
-        while True:
-            if not self.queue.empty():
-                user, op_code, contents = self.queue.get()
-                server_id = user.get_id()
-                gen_number = user.get_gen_number()
-                if op_code == 8:
-                    print('prepare received')
-                    print(self.paxos.machines[0].conn)
-                    self.paxos.send_promise(server_id, gen_number)
-                if op_code == 9:
-                    print('promise received')
-                    self.paxos.handle_promise(server_id, gen_number, self.filename)
-                if op_code == 10:
-                    print('accept received')
-                    print("accept this:", gen_number)
-                    self.paxos.handle_accept(server_id, gen_number)
-                if op_code == 11:
-                    if contents == 'accept':
-                        print('committing operation')
-                        self.paxos.commit_op(self.filename, "upload")
+        except Exception as e:
+            self.logger.exception(e)
+            conn.close()
+            self.logger.info('Shutting down internal server connection handler.')
 
     def setup_internal_connections(self):
         """
         Sets up the internal connections to the other servers
         """
-        for server_id in self.paxos.machines:
+        for backup in self.machines:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server = self.paxos.machines[server_id]
             try:
-                sock.connect((server.ip, server.internal_port))
-                print(f"Connected to Server {server.id} on port {server.internal_port}")
-                self.paxos.machines[server.id].conn = sock
-
+                sock.connect((backup.ip, backup.internal_port))
+                print(f"Connected to Server {backup.id} on port {backup.internal_port}")
+                # self.paxos.machines[backup.id].conn = sock
             except:
-                # self.logger.info(f"Setup failed for {backup.id}")
-                pass
+                self.logger.info(f"Setup failed for {backup.id}")
         return
+
 
     def run_server(self):
         """
         Run the server.
         """
         self.logger.info('Server started!')
+        # Bind tcp, udp, internal sockets to ports
+        self.tcp_sock.bind((socket.gethostname(), self.machine.tcp_port))
+        self.udp_sock.bind((socket.gethostname(), self.machine.audio_udp_port))
+        self.update_udp_sock.bind((socket.gethostname(), self.machine.update_udp_port))
+        self.internal_socket.bind((socket.gethostname(), self.machine.internal_port))
 
-        inputs = [self.tcp_sock, self.udp_sock]
+        # Listen for incoming connections
+        self.tcp_sock.listen(5)
+        self.internal_socket.listen(5)
+
         procs = list()
 
+        # client update thread
+        procs.append(threading.Thread(target=self.send_client_updates, args=()))
         # streaming thread
         procs.append(threading.Thread(target=self.stream_audio, args=()))
-        # listen for incoming messages from other servers
-        procs.append(threading.Thread(target=server.listen_internal))
-        # handle the queue of messages from the clients
-        procs.append(threading.Thread(target=server.handle_queue))
 
+        # start processes
         for eachThread in procs:
             eachThread.start()
 
-        print('\nConnecting with other servers...')
-        # sleep to allow servers to start before attempting to connect
+        inputs = [self.tcp_sock, self.udp_sock, self.update_udp_sock, self.internal_socket]
+        self.logger.info('Connecting to Server Replicas')
         time.sleep(1.5)
         self.setup_internal_connections()
 
-        self.logger.info('Waiting for client incoming connections')
+        self.logger.info('Waiting for incoming connections')
         try:
-            for sock in self.poll_read_sock_no_exit(inputs):
+            for sock in poll_read_sock_no_exit(inputs, self.exit):
                 if sock == self.tcp_sock:
                     conn, addr = sock.accept()
 
@@ -384,25 +416,39 @@ class Server:
                         target=self.handle_tcp_conn, args=(conn,))
                     t.start()
                     procs.append(t)
-                # If the socket is the server socket, accept as a connection
                 elif sock == self.udp_sock:
                     _, addr = sock.recvfrom(BUFF_SIZE)
 
                     self.logger.info(
-                        f'[+] UDP connected to {addr[0]} ({addr[1]})')
+                        f'[+] Audio UDP connected to {addr[0]} ({addr[1]})')
 
-                    self.udp_addrs.append(addr)
+                    self.audio_udp_addrs.append(addr)
+                elif sock == self.update_udp_sock:
+                    _, addr = sock.recvfrom(BUFF_SIZE)
+
+                    self.logger.info(
+                        f'[+] Update UDP connected to {addr[0]} ({addr[1]})')
+
+                    self.update_udp_addrs.append(addr)
+                elif sock == self.internal_socket:
+                    conn, addr = sock.accept()
+                    self.logger.info(
+                        f'[+] Internal Server connected to {addr[0]} ({addr[1]})')
+                    t = threading.Thread(
+                        target=self.listen_internal, args=(conn,))
+                    t.start()
+                    procs.append(t)
+
+                    # self.internal_addrs.append(addr)
                 # Otherwise, read the data from the socket
                 else:
-                    # TODO pls fix
-                    data = sock.recv(1024)
-                    if data:
-                        self.logger.info(f'Received data: {data}')
-                    else:
-                        sock.close()
-                        inputs.remove(sock)
+                    sock.close()
+                    inputs.remove(sock)
+        except Exception as e:
+            self.logger.exception(e)
         except KeyboardInterrupt:
             self.logger.info('Shutting down server.')
+        finally:
             self.exit.set()
 
             for proc in procs:

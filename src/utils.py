@@ -5,9 +5,6 @@ import socket
 import threading
 from enum import Enum
 
-# from wire_protocol import pack_opcode
-
-
 class Operation(Enum):
     """
     Enum for the different types of operations that can be performed.
@@ -20,6 +17,7 @@ class Operation(Enum):
     PAUSE = 5
     PLAY = 6
     SKIP = 7
+    SERVER_UPLOAD = 8
 
 
 class Update(Enum):
@@ -161,7 +159,7 @@ def send_to_all_addrs(sock: socket.socket, addrs: list, data: bytes):
 #     """
 #     Upload a file to the server.
 #     ...
-
+#
 #     Parameters
 #     ----------
 #     file_path : str
@@ -172,17 +170,17 @@ def send_to_all_addrs(sock: socket.socket, addrs: list, data: bytes):
 #     size = len(filename)
 #     # encode filename size as 16 bit binary, limit your filename length to 255 bytes
 #     size = bin(size)[2:].zfill(16)
-
+#
 #     sock.send(size.encode())
 #     sock.send(filename.encode())
-
+#
 #     filesize = os.path.getsize(file_path)
 #     # encode filesize as 32 bit binary
 #     filesize = bin(filesize)[2:].zfill(32)
 #     sock.send(filesize.encode())
-
+#
 #     file_to_send = open(file_path, 'rb')
-
+#
 #     l = file_to_send.read()
 #     sock.sendall(l)
 #     file_to_send.close()

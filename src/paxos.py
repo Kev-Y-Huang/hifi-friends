@@ -1,7 +1,8 @@
 import socket
 import time
 
-from src.utils import upload_file
+from wire_protocol import upload_file
+# from src.utils import upload_file
 from wire_protocol import pack_packet
 from machines import MACHINES, Machine, get_other_machines, get_other_machines_ids
 from collections import defaultdict
@@ -118,12 +119,14 @@ class Paxos:
 
     def commit_op(self, filename, operation):
         if operation == "upload":
-            for server_id in self.machines:
-                server = self.machines[server_id]
+            for server in self.machines:
                 if not server.accepted:
                     print('server to server upload attempt')
-                    s = socket.socket()
-                    s.connect((server.ip, server.client_tcp_port))
-                    upload_file(s, f'server_{self.server_id}_files/{filename}')
+                    try:
+                        s = socket.socket()
+                        s.connect((server.ip, server.tcp_port))
+                        upload_file(s, f'server_{self.server_id}_files/{filename}')
+                    except:
+                        print(f'server {server.id} is dead')
 
 
