@@ -8,9 +8,9 @@ import wave
 import pyaudio
 import argparse
 
-from utils import (ActionType, Operation, poll_read_sock_no_exit, queue_rows,
+from utils import (Update, Operation, poll_read_sock_no_exit, queue_rows,
                    send_to_all_addrs, setup_logger)
-from wire_protocol import pack_num, pack_state, unpack_num, unpack_opcode
+from wire_protocol import pack_num, pack_state, unpack_num, unpack_opcode, pack_opcode
 from machines import MACHINES, get_other_machines
 from music_service import User
 from wire_protocol import unpack_opcode, pack_packet, unpack_packet
@@ -62,7 +62,7 @@ class Server:
         self.song_index = 0
         self.frame_index = 0
         self.action_mutex = threading.Lock()
-        self.action = ActionType.PING
+        self.action = Update.PING
 
         # Paxos
         self.filename = None
@@ -173,7 +173,6 @@ class Server:
                 # If there is no data, the connection has been closed
                 if not data:
                     break
-                print(data.decode())
                 opcode = unpack_opcode(data)
                 message = "No response."
 
@@ -198,19 +197,19 @@ class Server:
                 elif opcode == Operation.PAUSE:
                     self.logger.info('[5] Pausing audio.')
                     self.action_mutex.acquire()
-                    self.action = ActionType.PAUSE
+                    self.action = Update.PAUSE
                     self.action_mutex.release()
                     message = 'Audio paused.'
                 elif opcode == Operation.PLAY:
                     self.logger.info('[6] Playing audio.')
                     self.action_mutex.acquire()
-                    self.action = ActionType.PLAY
+                    self.action = Update.PLAY
                     self.action_mutex.release()
                     message = 'Audio playing.'
                 elif opcode == Operation.SKIP:
                     self.logger.info('[7] Skipping audio.')
                     self.action_mutex.acquire()
-                    self.action = ActionType.SKIP
+                    self.action = Update.SKIP
                     self.action_mutex.release()
                     message = 'Song skipped.'
                 # TODO implement the rest of the opcodes
@@ -228,6 +227,29 @@ class Server:
         finally:
             self.logger.info('Shutting down TCP handler.')
             conn.close()
+
+    # Upload a file to another server
+    def upload_file(self, file_path, conn):
+        """
+        Upload a file to the server.
+        ...
+
+        Parameters
+        ----------
+        file_path : str
+            The path to the file to upload.
+        """
+        conn.send(pack_opcode(Operation.UPLOAD))
+
+        file_name = os.path.basename(file_path)
+        conn.send(pack_num(len(file_name), 16))
+        conn.send(file_name.encode())
+        conn.send(pack_num(os.path.getsize(file_path), 32))
+
+        with open(file_path, 'rb') as file_to_send:
+            self.server_tcp.sendall(file_to_send.read())
+
+        print('File Sent')
 
     def stream_audio(self):
         """
@@ -316,18 +338,13 @@ class Server:
                 self.action_mutex.acquire()
                 send_to_all_addrs(self.update_udp_sock, self.update_udp_addrs, pack_state(
                     self.song_index, self.frame_index, self.action))
-                self.action = ActionType.PING
+                self.action = Update.PING
                 self.action_mutex.release()
 
                 time.sleep(0.01)
         except Exception as e:
             self.logger.exception(e)
             self.update_udp_sock.close()
-
-    def send_server_updates(self):
-        for server in self.paxos.machines:
-            self.paxos.commit_op(filename, 'upload')
-
 
     def listen_internal(self, conn):
         """
@@ -366,7 +383,7 @@ class Server:
             try:
                 sock.connect((backup.ip, backup.internal_port))
                 print(f"Connected to Server {backup.id} on port {backup.internal_port}")
-                # self.paxos.machines[backup.id].conn = sock
+                self.paxos.machines[backup.id].conn = sock
             except:
                 self.logger.info(f"Setup failed for {backup.id}")
         return

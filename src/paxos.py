@@ -1,9 +1,10 @@
 import socket
 import time
 
-from wire_protocol import upload_file
+from utils import Operation
+import os
 # from src.utils import upload_file
-from wire_protocol import pack_packet
+from wire_protocol import pack_packet, pack_opcode, pack_num
 from machines import MACHINES, Machine, get_other_machines, get_other_machines_ids
 from collections import defaultdict
 # from utils import upload_file
@@ -21,6 +22,7 @@ class Paxos:
         self.server_id = server_id
         self.clock = 0
         self.gen_number = 0
+        self.conn = None
 
         self.accept_operation = ""
         self.quorum_reached = False
@@ -36,8 +38,7 @@ class Paxos:
         # send generation number to servers
         print('gen_number', self.gen_number)
         for server in self.machines:
-            conn = self.machines[server].conn
-            conn.send(pack_packet(self.server_id, self.gen_number, 8, ""))
+            server.send(pack_packet(self.server_id, self.gen_number, 8, ""))
 
     def send_promise(self, server_id, gen_number):
         """
@@ -128,5 +129,29 @@ class Paxos:
                         upload_file(s, f'server_{self.server_id}_files/{filename}')
                     except:
                         print(f'server {server.id} is dead')
+
+
+def upload_file(conn, file_path):
+    """
+    Upload a file to the server.
+    ...
+
+    Parameters
+    ----------
+    file_path : str
+        The path to the file to upload.
+    """
+    conn.send(pack_opcode(Operation.SERVER_UPLOAD))
+
+    file_name = os.path.basename(file_path)
+    conn.send(pack_num(len(file_name), 16))
+    conn.send(file_name.encode())
+    conn.send(pack_num(os.path.getsize(file_path), 32))
+
+    with open(file_path, 'rb') as file_to_send:
+        conn.sendall(file_to_send.read())
+
+    print('File Sent')
+
 
 
