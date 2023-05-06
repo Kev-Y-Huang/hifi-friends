@@ -167,6 +167,10 @@ class Client:
         if self.stream:
             self.server_tcp.send(pack_opcode(Operation.PAUSE))
             self.is_paused = True
+
+            # Wait for server to respond
+            message = self.server_tcp.recv(1024).decode()
+            print(message)
         else:
             print("No stream to stop.")
 
@@ -177,6 +181,10 @@ class Client:
         if self.stream:
             self.server_tcp.send(pack_opcode(Operation.PLAY))
             self.is_paused = False
+
+            # Wait for server to respond
+            message = self.server_tcp.recv(1024).decode()
+            print(message)
         else:
             print("No stream to play.")
 
@@ -188,6 +196,10 @@ class Client:
             self.server_tcp.send(pack_opcode(Operation.SKIP))
             with self.curr_song_frames.mutex:
                 self.curr_song_frames.queue.clear()
+
+            # Wait for server to respond
+            message = self.server_tcp.recv(1024).decode()
+            print(message)
         else:
             print("No song to skip.")
 

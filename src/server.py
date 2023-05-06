@@ -9,8 +9,7 @@ import pyaudio
 
 from utils import (ActionType, Operation, poll_read_sock_no_exit, queue_rows,
                    send_to_all_addrs, setup_logger)
-from wire_protocol import (pack_num, pack_state, unpack_num, unpack_opcode,
-                           unpack_state)
+from wire_protocol import pack_num, pack_state, unpack_num, unpack_opcode
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -187,16 +186,19 @@ class Server:
                     self.action_mutex.acquire()
                     self.action = ActionType.PAUSE
                     self.action_mutex.release()
+                    message = 'Audio paused.'
                 elif opcode == Operation.PLAY:
                     self.logger.info('[6] Playing audio.')
                     self.action_mutex.acquire()
                     self.action = ActionType.PLAY
                     self.action_mutex.release()
+                    message = 'Audio playing.'
                 elif opcode == Operation.SKIP:
                     self.logger.info('[7] Skipping audio.')
                     self.action_mutex.acquire()
                     self.action = ActionType.SKIP
                     self.action_mutex.release()
+                    message = 'Song skipped.'
                 # TODO implement the rest of the opcodes
                 elif opcode == 6:
                     self.logger.info('Need to finish implementation.')
