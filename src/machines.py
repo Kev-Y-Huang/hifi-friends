@@ -59,14 +59,13 @@ MACHINE_TWO = Machine(
 )
 
 # Create a mapping from machine name to information about it
-MACHINES = [MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO]
-# MACHINES = [MACHINE_ZERO, MACHINE_ONE]
+# MACHINES = [MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO]
+MACHINES = dict(enumerate([MACHINE_ZERO, MACHINE_ONE]))
 
-def get_other_machines(id: int) -> List[Machine]:
+def get_other_machines(id: int, machines=MACHINES) -> List[Machine]:
     """
     Returns a list of all the machines that are not the machine with the given id.
     """
-    return [machine for machine in MACHINES if machine.id != id]
+    del machines[id]
+    return machines
 
-def get_other_machines_ids(id: int) -> dict:
-    return {key.id: None for key in get_other_machines(id)}

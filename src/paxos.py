@@ -5,7 +5,7 @@ from utils import Operation
 import os
 # from src.utils import upload_file
 from wire_protocol import pack_packet, pack_opcode, pack_num
-from machines import MACHINES, Machine, get_other_machines, get_other_machines_ids
+from machines import MACHINES, Machine, get_other_machines
 from collections import defaultdict
 # from utils import upload_file
 
@@ -13,8 +13,11 @@ from collections import defaultdict
 class PaxServer:
     def __init__(self):
         self.conn = None
+        self.ip = None
+        self.port = None
         self.accepted = False
         self.promise_value = 0
+
 
 class Paxos:
     def __init__(self, server_id):
@@ -36,15 +39,14 @@ class Paxos:
         self.clock += 1
         self.gen_number = int(f'{self.clock}{self.server_id}')
         # send generation number to servers
-        print('gen_number', self.gen_number)
         for server in self.machines:
-            server.send(pack_packet(self.server_id, self.gen_number, 8, ""))
+            self.machines[server].conn.send(pack_opcode(Operation.PREPARE))
+            self.machines[server].conn.send(pack_packet(self.server_id, self.gen_number, ""))
 
     def send_promise(self, server_id, gen_number):
         """
         After receiving a prepare message, send a promise message to proposing server
         """
-        print("gen_number: ", str(gen_number))
         proposer_conn = self.machines[server_id].conn
         promise_message = self.gen_number
 
@@ -52,10 +54,9 @@ class Paxos:
         if self.accept_operation == "":
             promise_message = max(promise_message, int(gen_number))
 
-        print("promise_message: ", str(promise_message))
-        proposer_conn.send(pack_packet(self.server_id, promise_message, 9, self.accept_operation))
+        proposer_conn.send(pack_opcode(Operation.PROMISE))
+        proposer_conn.send(pack_packet(self.server_id, promise_message, self.accept_operation))
         self.gen_number = promise_message
-        print("new gen number:", self.gen_number)
 
     def handle_promise(self, server_id, gen_number, filename, accept_operation=False):
         """
@@ -93,7 +94,7 @@ class Paxos:
             # After sleeping, resend prepares with higher generation number
             time.sleep(1)
             print('send another prepare')
-            # self.send_prepare()
+            self.send_prepare()
 
 
     def send_accept(self, filename):
@@ -104,7 +105,8 @@ class Paxos:
             server = self.machines[server_id]
             if not server.accepted:
                 # op code 10 refers to an upload operation
-                server.conn.send(pack_packet(self.server_id, self.gen_number, 10, filename))
+                server.conn.send(pack_opcode(Operation.ACCEPT))
+                server.conn.send(pack_packet(self.server_id, self.gen_number, filename))
 
     def handle_accept(self, server_id, gen_number):
         """
@@ -112,23 +114,24 @@ class Paxos:
         number is higher
         """
         proposer_conn = self.machines[server_id].conn
+        proposer_conn.send(pack_opcode(Operation.ACCEPT_RESPONSE))
         if gen_number < self.gen_number:
-            proposer_conn.send(pack_packet(self.server_id,  self.gen_number, 11, "reject"))
+            proposer_conn.send(pack_packet(self.server_id,  self.gen_number, "reject"))
         else:
             # TODO perform actual operation
-            proposer_conn.send(pack_packet(self.server_id,  self.gen_number, 11, "accept"))
+            proposer_conn.send(pack_packet(self.server_id,  self.gen_number, "accept"))
 
     def commit_op(self, filename, operation):
         if operation == "upload":
-            for server in self.machines:
+            for server_id in self.machines:
+                server = self.machines[server_id]
                 if not server.accepted:
-                    print('server to server upload attempt')
                     try:
                         s = socket.socket()
-                        s.connect((server.ip, server.tcp_port))
+                        s.connect((server.ip, server.internal_port))
                         upload_file(s, f'server_{self.server_id}_files/{filename}')
                     except:
-                        print(f'server {server.id} is dead')
+                        print(f'server {server_id} is dead')
 
 
 def upload_file(conn, file_path):

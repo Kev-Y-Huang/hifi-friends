@@ -26,7 +26,6 @@ CHUNK = 10*1024
 class Server:
     def __init__(self, server_id):
         self.server_id = server_id
-        self.machines = get_other_machines(server_id)
         self.machine = MACHINES[server_id]
 
         # TCP Setup
@@ -86,6 +85,8 @@ class Server:
         file_name = c_sock.recv(file_name_size).decode()
         file_size = unpack_num(c_sock.recv(32))
 
+        self.filename = file_name
+
         if file_name in self.uploaded_files:
             message = f'A file of the same name {file_name} is already being uploaded. Upload canceled.'
             self.logger.error(message)
@@ -109,7 +110,7 @@ class Server:
         self.logger.info('File received successfully.')
 
         if replicate:
-            self.paxos.commit_op(file_name, 'upload')
+            self.paxos.send_prepare()
 
         return message
 
@@ -226,30 +227,7 @@ class Server:
             self.logger.exception(e)
         finally:
             self.logger.info('Shutting down TCP handler.')
-            conn.close()
-
-    # Upload a file to another server
-    def upload_file(self, file_path, conn):
-        """
-        Upload a file to the server.
-        ...
-
-        Parameters
-        ----------
-        file_path : str
-            The path to the file to upload.
-        """
-        conn.send(pack_opcode(Operation.UPLOAD))
-
-        file_name = os.path.basename(file_path)
-        conn.send(pack_num(len(file_name), 16))
-        conn.send(file_name.encode())
-        conn.send(pack_num(os.path.getsize(file_path), 32))
-
-        with open(file_path, 'rb') as file_to_send:
-            self.server_tcp.sendall(file_to_send.read())
-
-        print('File Sent')
+            # conn.close()
 
     def stream_audio(self):
         """
@@ -360,14 +338,36 @@ class Server:
                     inputs.append(client)
                 # Otherwise, read the data from the socket
                 else:
-                    data = sock.recv(1024)
+                    data = sock.recv(1)
                     # If there is no data, then the connection has been closed
                     if not data:
                         break
-                    username, gen_number, op_code, contents = unpack_packet(data)
-                    print(f'gen_number to put into queue: {gen_number}')
-                    curr_user = User(sock, username, gen_number)
-                    # self.queue.put((curr_user, int(op_code), contents))
+                    opcode = unpack_opcode(data)
+
+                    if opcode == Operation.SERVER_UPLOAD:
+                        self.logger.info('[1] Receiving audio file.')
+                        self.recv_file(sock, False)
+
+                    elif opcode.value > 10:
+                        paxos_msg = sock.recv(1024)
+                        server_id, gen_number, msg = unpack_packet(paxos_msg)
+
+                        if opcode == Operation.PREPARE:
+                            self.paxos.send_promise(server_id, gen_number)
+
+                        if opcode == Operation.PROMISE:
+                            print('promise received')
+                            self.paxos.handle_promise(server_id, gen_number, self.filename)
+
+                        if opcode == Operation.ACCEPT:
+                            print('accept received')
+                            print("accept this:", gen_number)
+                            self.paxos.handle_accept(server_id, gen_number)
+
+                        if opcode == Operation.ACCEPT_RESPONSE:
+                            print('committing operation')
+                            print(self.filename)
+                            self.paxos.commit_op(self.filename, "upload")
 
         except Exception as e:
             self.logger.exception(e)
@@ -378,12 +378,15 @@ class Server:
         """
         Sets up the internal connections to the other servers
         """
-        for backup in self.machines:
+        for server_id in self.paxos.machines:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            backup = self.paxos.machines[server_id]
             try:
                 sock.connect((backup.ip, backup.internal_port))
                 print(f"Connected to Server {backup.id} on port {backup.internal_port}")
                 self.paxos.machines[backup.id].conn = sock
+                self.paxos.machines[backup.id].ip = backup.ip
+                self.paxos.machines[backup.id].port = backup.tcp_port
             except:
                 self.logger.info(f"Setup failed for {backup.id}")
         return
@@ -466,6 +469,7 @@ class Server:
         except KeyboardInterrupt:
             self.logger.info('Shutting down server.')
         finally:
+            os.system(f'rm -rf server_{self.server_id}_files/*')
             self.exit.set()
 
             for proc in procs:
