@@ -62,10 +62,12 @@ MACHINE_TWO = Machine(
 # MACHINES = [MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO]
 MACHINES = dict(enumerate([MACHINE_ZERO, MACHINE_ONE]))
 
-def get_other_machines(id: int, machines=MACHINES) -> List[Machine]:
+
+def get_other_machines(id: int):
     """
     Returns a list of all the machines that are not the machine with the given id.
     """
-    del machines[id]
-    return machines
+    machines_copy = MACHINES.copy()
+    del machines_copy[id]
+    return machines_copy
 
