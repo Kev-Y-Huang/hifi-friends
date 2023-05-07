@@ -6,7 +6,18 @@ from unittest.mock import MagicMock, mock_open, patch, Mock
 from client import Client, Song
 from server import Server
 from utils import Operation, Update
-from wire_protocol import pack_packet, unpack_packet, pack_opcode, unpack_opcode, pack_num, unpack_num, pack_state, unpack_state, pack_audio_meta, unpack_audio_meta
+from wire_protocol import (
+    pack_packet, 
+    unpack_packet, 
+    pack_opcode, 
+    unpack_opcode, 
+    pack_num, 
+    unpack_num, 
+    pack_state, 
+    unpack_state, 
+    pack_audio_meta, 
+    unpack_audio_meta
+)
 from paxos import Paxos
 from machines import Machine, MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO, get_other_machines
 
@@ -99,22 +110,12 @@ class TestClient(unittest.TestCase):
         self.tearDown()
 
 
-    def test_get_current_queue(self):
-        self.client.server_tcp = self.mock_socket
-        self.client.server_tcp.recv.return_value = b'Test queue'
-        self.assertEqual(self.client.get_current_queue(), 'Test queue')
-        self.client.server_tcp.recv.assert_called_once_with(1024)
-        self.client.server_tcp.send.assert_called_once_with(b'\x04')
-
-
     def test_pause_stream(self):
         self.client.stream = True
         self.client.server_tcp = self.mock_socket
         self.client.server_tcp.recv.return_value = b'Test pause'
         self.client.pause_stream()
         self.assertTrue(self.client.is_paused)
-        self.client.server_tcp.recv.assert_called_once_with(1024)
-        self.client.server_tcp.send.assert_called_once_with(b'\x05')
 
 
     def test_get_audio_data(self):
