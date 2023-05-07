@@ -66,14 +66,14 @@ All tests should pass.
 
 ## Folder Structure
 ```
-├── src        # All of the source code is here
-|   ├── __init__.py	            # Initializes application from config file
-|   ├── deprecated              # Deprecated FIles
+├── src                         # All of the source code is here
+|   ├── __init__.py             # Initializes application from config file
+|   ├── deprecated              # Deprecated Files
 |   |   ├── static     
 |   |   │   ├── script.js       # Supporting JavaScript for the client (deprecated)
 |   |   │   ├── sound.gif       
 |   |   |   └── styles.css      # Supporting style file for the client (deprecated)
-|   |   └── templates           # Supporting templates for Flask app (deprecated)
+|   |   ├── templates           # Supporting templates for Flask app (deprecated)
 |   |   |   └── index.html      # HTML files
 |   |   ├── music_service.py    # Code for the music service (deprecated)          
 |   |   ├── app.py              # Code for Flask client (deprecated)
