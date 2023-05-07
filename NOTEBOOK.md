@@ -1,5 +1,23 @@
 # **LOG**
 
+## Major Issues Encountered
+
+### Syncing up clients
+
+One major issue we encountered was syncing playback across clients. We noticed that when clients would call play, pause, or skip, the playback would become unsynchronized. 
+
+To tackle this issue, we had to implement server-side code that would keep track of the song frames and ensure that they were being played at the same time across all clients. We introduced a queue on the server that would keep track of the song frames that were being played. 
+
+We implemented a mechanism to synchronize the clients' playback every certain amount of time, say every half-second or second through the use of a queue keeping track of the song frames. This was done by having all clients share their current timestamps with the server and get back a current agreed-upon time for playback. If a client was ahead of the agreed-upon time, the server would send a command to pause the playback until the agreed-upon time was reached. Similarly, if a client was behind the agreed-upon time, the server would send a command to skip to the appropriate frame to catch up.
+
+### File Upload
+
+Another major issue we encountered was file upload. We noticed that when clients would upload a file, there were many issues that could occur, including: 
+1. the file would not be fully uploaded before the client would try to play the file. This would result in the client trying to play a file that was not fully uploaded, resulting in an error. In this case we decided to keep track of a list of files on the server that had been fully uploaded and were ready to be played. If a client tried to play a file that was not fully uploaded, the song would not be played and the server would return an error to the client.
+2. the file already existed on the server. In this case, we decided to keep track of a list of files on the server that had been fully uploaded and were ready to be played. If a client tried to upload a file that already existed on the server, the server would return an error to the client.
+
+A future step for this project would be to introduce hashing of the files, which would allow for the prevention of duplicate files and faster file retrieval. This would help the service scale better and allow for more efficient file storage.
+
 ## **5/6**
 
 Tasks done
