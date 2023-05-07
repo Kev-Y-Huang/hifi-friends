@@ -30,8 +30,10 @@ class Server:
         self.machine = MACHINES[server_id]
 
         # TCP Setup
-        self.tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.upload_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.upload_tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.stream_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.stream_tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         # Audio UDP Setup
         self.audio_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -107,7 +109,7 @@ class Server:
                     chunk_size = file_size
                 data = c_sock.recv(chunk_size)
                 file_size -= len(data)
-                
+
             return message
         
         # Begin receiving the file and writing it to the server files directory
@@ -130,7 +132,7 @@ class Server:
             # Tell client file finished uploading
             c_sock.send(pack_msgcode(Message.DONE_UPLOADING))
             c_sock.send(message.encode())
-            
+
             self.paxos.send_prepare()
 
         return message
@@ -237,6 +239,12 @@ class Server:
                     self.action = Update.SKIP
                     self.action_mutex.release()
                     message = 'Song skipped.'
+                # TODO implement the rest of the opcodes
+                elif opcode == Operation.PING:
+                    print('ping')
+                    break
+                elif opcode == 6:
+                    self.logger.info('Need to finish implementation.')
 
                 # Send the message back to the client
                 if message:
@@ -403,13 +411,16 @@ class Server:
         """
         self.logger.info('Server started!')
         # Bind tcp, udp, internal sockets to ports
-        self.tcp_sock.bind((socket.gethostname(), self.machine.tcp_port))
+        self.upload_tcp_sock.bind((socket.gethostname(), self.machine.upload_tcp_port))
+        self.stream_tcp_sock.bind((socket.gethostname(), self.machine.stream_tcp_port))
+
         self.audio_udp_sock.bind((socket.gethostname(), self.machine.audio_udp_port))
         self.update_udp_sock.bind((socket.gethostname(), self.machine.update_udp_port))
         self.internal_socket.bind((socket.gethostname(), self.machine.internal_port))
 
         # Listen for incoming connections
-        self.tcp_sock.listen(5)
+        self.upload_tcp_sock.listen(5)
+        self.stream_tcp_sock.listen(5)
         self.internal_socket.listen(5)
 
         procs = list()
@@ -423,7 +434,7 @@ class Server:
         stream_proc = threading.Thread(target=self.stream_audio, args=())
         stream_proc.start()
 
-        inputs = [self.tcp_sock, self.audio_udp_sock, self.update_udp_sock, self.internal_socket]
+        inputs = [self.upload_tcp_sock, self.stream_tcp_sock, self.audio_udp_sock, self.update_udp_sock, self.internal_socket]
         procs = [stream_proc, client_update_proc]
         
         self.logger.info('Connecting to Server Replicas')
@@ -433,11 +444,20 @@ class Server:
         try:
             for sock in poll_read_sock_no_exit(inputs, self.exit):
                 # If the socket is the TCP socket, accept the connection
-                if sock == self.tcp_sock:
+                if sock == self.upload_tcp_sock:
                     conn, addr = sock.accept()
 
                     self.logger.info(
-                        f'[+] TCP connected to {addr[0]} ({addr[1]})')
+                        f'[+] Upload TCP connected to {addr[0]} ({addr[1]})')
+
+                    t = threading.Thread(
+                        target=self.handle_tcp_conn, args=(conn,))
+                    t.start()
+                    procs.append(t)
+                if sock == self.stream_tcp_sock:
+                    conn, addr = sock.accept()
+                    self.logger.info(
+                        f'[+] Stream TCP connected to {addr[0]} ({addr[1]})')
 
                     t = threading.Thread(
                         target=self.handle_tcp_conn, args=(conn,))

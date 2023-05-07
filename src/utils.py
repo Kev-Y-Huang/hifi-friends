@@ -17,6 +17,7 @@ class Operation(Enum):
     PAUSE = 5
     PLAY = 6
     SKIP = 7
+    PING = 8
 
 class ServerOperation(Enum):
     """
