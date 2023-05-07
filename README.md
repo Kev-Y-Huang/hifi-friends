@@ -11,7 +11,13 @@ We built a server and client using the `socket` and `threading` native Python li
 
 ## How to run the app
 
-HiFi Friends can be run cross-platform on multiple machines. To start the service, ensure you are in the root directory, and have created the following subdirectories:
+HiFi Friends can be run cross-platform on multiple machines. However, on MacOS, before attempting to start the service, run
+
+```bash
+sudo sysctl -w net.inet.udp.maxdgram=65535
+``` 
+
+in order to change the size of the messages that can be transmitted through UDP ports. To start the service, ensure you are in the root directory, and have created the following subdirectories:
 
 ```bash
 server_0_files
