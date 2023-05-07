@@ -14,6 +14,7 @@ from wire_protocol import (pack_num, pack_opcode, unpack_audio_meta,
                            unpack_state, unpack_msgcode)
 from machines import MACHINES
 
+# HOST = '10.250.69.80'
 HOST = socket.gethostname()
 
 server_number = 0
