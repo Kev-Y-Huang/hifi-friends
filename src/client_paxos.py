@@ -60,9 +60,9 @@ class Client:
         self.stream_tcp_port = stream_tcp_port
         self.stream_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        # TCP connection to server
+        # TCP connection for state updates
         self.state_tcp_port = state_tcp_port
-        self.state_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.state_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         # UDP connection for audio
         self.audio_udp_port = audio_udp_port
@@ -208,15 +208,18 @@ class Client:
         Stream state information to the server.
         """
         try:
-            self.state_tcp.connect((self.host, self.state_tcp_port))
+            self.state_tcp_sock.connect((self.host, self.state_tcp_port))
 
             while not self.exit.is_set():
                 time.sleep(0.1)
-                self.state_tcp.send(pack_state(self.song_index, self.frame_index, Update.PING))
+                try:
+                    self.state_tcp_sock.send(pack_state(self.song_index, self.frame_index, Update.PING))
+                except:
+                    self.check_connection()
         except Exception:
             print(traceback.format_exc())
         finally:
-            self.state_tcp.close()
+            self.state_tcp_sock.close()
             print('State stream closed.')
 
     def get_audio_data(self):
@@ -381,11 +384,17 @@ class Client:
             self.upload_tcp_sock.connect((self.host, self.upload_tcp_port))
         except (BrokenPipeError, ConnectionResetError):
             return
+        
     def connect_stream(self, machine):
         try:
             self.stream_tcp_port = machine.stream_tcp_port
             self.stream_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.stream_tcp_sock.connect((self.host, self.stream_tcp_port))
+            
+            # TCP connection for state updates
+            self.state_tcp_port = machine.state_tcp_port
+            self.state_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.state_tcp_sock.connect((self.host, self.state_tcp_port))
 
             # UDP connection for audio
             self.audio_udp_port = machine.audio_udp_port

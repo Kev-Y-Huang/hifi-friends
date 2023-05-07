@@ -580,7 +580,6 @@ class Server:
             os.system(f'rm -rf server_{self.server_id}_files/*')
 
             self.exit.set()
-            self.internal_socket.close()
 
             for proc in procs:
                 proc.join()
