@@ -17,7 +17,8 @@ from machines import MACHINES
 
 HOST = socket.gethostname()
 
-upload_server_number = random.randint(0, len(MACHINES)-1)
+# upload_server_number = random.randint(0, len(MACHINES)-1)
+upload_server_number = 0
 stream_server_number = 0
 UPLOAD_TCP_PORT = MACHINES[upload_server_number].upload_tcp_port
 STREAM_TCP_PORT = MACHINES[stream_server_number].stream_tcp_port
@@ -389,12 +390,14 @@ class Client:
         for i in range(len(MACHINES)):
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.connect((self.host, MACHINES[i].tcp_port))
+                print(MACHINES[i].upload_tcp_port)
+                sock.connect((self.host, MACHINES[i].upload_tcp_port))
                 sock.send(pack_opcode(Operation.PING))
                 print('pinged')
                 MACHINES[i].connected = True
                 sock.close()
-            except (ConnectionRefusedError, BrokenPipeError):
+            except Exception as e:
+                print(e)
                 print(f'server {i} is down')
                 MACHINES[i].connected = False
 

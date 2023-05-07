@@ -396,7 +396,7 @@ class Server:
                     print(f"Connected to Server {backup.id} on port {backup.internal_port}")
                     self.paxos.machines[backup.id].conn = sock
                     self.paxos.machines[backup.id].ip = backup.ip
-                    self.paxos.machines[backup.id].port = backup.tcp_port
+                    self.paxos.machines[backup.id].port = backup.upload_tcp_port
                     self.paxos.machines[backup.id].connected = True
                     break
                 except:
