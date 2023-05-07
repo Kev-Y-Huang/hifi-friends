@@ -49,7 +49,7 @@ MACHINE_ONE = Machine(
 )
 
 MACHINE_TWO = Machine(
-    id=1,
+    id=2,
     # ip="localhost",
     ip=IP,
     tcp_port=6221,
@@ -59,8 +59,8 @@ MACHINE_TWO = Machine(
 )
 
 # Create a mapping from machine name to information about it
-# MACHINES = [MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO]
-MACHINES = [MACHINE_ZERO, MACHINE_ONE]
+MACHINES = [MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO]
+# MACHINES = [MACHINE_ZERO, MACHINE_ONE]
 
 def get_other_machines(id: int) -> List[Machine]:
     """
@@ -69,4 +69,4 @@ def get_other_machines(id: int) -> List[Machine]:
     return [machine for machine in MACHINES if machine.id != id]
 
 def get_other_machines_ids(id: int) -> dict:
-    return {key: None for key in get_other_machines(id)}
+    return {key.id: None for key in get_other_machines(id)}

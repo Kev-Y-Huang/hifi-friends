@@ -8,6 +8,7 @@ from server import Server
 from utils import Operation, Update
 from wire_protocol import pack_packet, pack_opcode, pack_num
 from paxos import Paxos
+from machines import Machine, MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO, get_other_machines, get_other_machines_ids
 
 HOST = 'localhost'
 TCP_PORT = 1538
@@ -17,6 +18,30 @@ CLIENT_UPDATE_PORT = 1540
 BUFF_SIZE = 65536
 CHUNK = 10*1024
 
+class TestMachines(unittest.TestCase):
+    def test_get_other_machines(self):
+        other_machines = get_other_machines(0)
+        self.assertEqual(other_machines[0].id, 1)
+        self.assertEqual(other_machines[1].id, 2)
+        
+        other_machines = get_other_machines(1)
+        self.assertEqual(other_machines[0].id, 0)
+        self.assertEqual(other_machines[1].id, 2)
+
+        other_machines = get_other_machines(2)
+        self.assertEqual(other_machines[0].id, 0)
+        self.assertEqual(other_machines[1].id, 1)
+
+
+    def test_get_other_machine_ids(self):
+        other_machines = get_other_machines_ids(0)
+        self.assertEqual(list(other_machines.keys()), [1,2])
+        
+        other_machines = get_other_machines_ids(1)
+        self.assertEqual(list(other_machines.keys()), [0,2])
+
+        other_machines = get_other_machines_ids(2)
+        self.assertEqual(list(other_machines.keys()), [0,1])
 
 class TestSong(unittest.TestCase):
     def test_init(self):
@@ -177,6 +202,8 @@ class TestPaxos(unittest.TestCase):
         for machine in self.paxos.machines.values():
             if not machine.accepted:
                 machine.conn.send.assert_called_once()
+
+
     
 
 if __name__ == '__main__':
