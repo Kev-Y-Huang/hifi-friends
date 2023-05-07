@@ -1,9 +1,9 @@
 import socket
 import time
 
-from utils import Operation
+from utils import ServerOperation
 import os
-from wire_protocol import pack_packet, pack_opcode, pack_num
+from wire_protocol import pack_packet, pack_server_opcode, pack_num
 
 
 class Paxos:
@@ -30,7 +30,7 @@ class Paxos:
         # send generation number to servers
         for server in self.machines:
             try:
-                self.machines[server].conn.send(pack_opcode(Operation.PREPARE))
+                self.machines[server].conn.send(pack_server_opcode(ServerOperation.PREPARE))
                 self.machines[server].conn.send(pack_packet(self.server_id, self.gen_number, ""))
             except BrokenPipeError:
                 self.machines[server].connected = False
@@ -48,7 +48,7 @@ class Paxos:
         if self.accept_operation == "":
             promise_message = max(promise_message, int(gen_number))
 
-        proposer_conn.send(pack_opcode(Operation.PROMISE))
+        proposer_conn.send(pack_server_opcode(ServerOperation.PROMISE))
         proposer_conn.send(pack_packet(self.server_id, promise_message, self.accept_operation))
         self.gen_number = promise_message
         print('promise sent')
@@ -102,7 +102,7 @@ class Paxos:
             if server.connected and not server.accepted:
                 try:
                     # op code 10 refers to an upload operation
-                    server.conn.send(pack_opcode(Operation.ACCEPT))
+                    server.conn.send(pack_server_opcode(ServerOperation.ACCEPT))
                     server.conn.send(pack_packet(self.server_id, self.gen_number, filename))
                 except BrokenPipeError:
                     server.connected = False
@@ -114,7 +114,7 @@ class Paxos:
         number is higher
         """
         proposer_conn = self.machines[server_id].conn
-        proposer_conn.send(pack_opcode(Operation.ACCEPT_RESPONSE))
+        proposer_conn.send(pack_server_opcode(ServerOperation.ACCEPT_RESPONSE))
         if gen_number < self.gen_number:
             proposer_conn.send(pack_packet(self.server_id,  self.gen_number, "reject"))
         else:
@@ -145,7 +145,7 @@ def upload_file(conn, file_path):
     file_path : str
         The path to the file to upload.
     """
-    conn.send(pack_opcode(Operation.SERVER_UPLOAD))
+    conn.send(pack_server_opcode(ServerOperation.UPLOAD))
 
     file_name = os.path.basename(file_path)
     conn.send(pack_num(len(file_name), 16))

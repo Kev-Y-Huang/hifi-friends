@@ -1,6 +1,6 @@
 import struct
 
-from utils import Operation, Update, Message
+from utils import Operation, ServerOperation, Update, Message
 
 
 def pack_packet(server_id: int, gen_number: int, input: str) -> bytes:
@@ -12,6 +12,14 @@ def unpack_packet(packet: bytes) -> tuple:
     decoded = packet.decode().split('|')
     return int(decoded[0]), int(decoded[1]), decoded[2]
 
+
+def pack_server_opcode(server_opcode: ServerOperation) -> bytes:
+    return struct.pack("!B", server_opcode.value)
+
+
+def unpack_server_opcode(data: bytes) -> ServerOperation:
+    output = struct.unpack("!B", data)[0]
+    return ServerOperation(output)
 
 def pack_opcode(opcode: Operation) -> bytes:
     return struct.pack("!B", opcode.value)

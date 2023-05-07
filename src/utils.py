@@ -17,14 +17,16 @@ class Operation(Enum):
     PAUSE = 5
     PLAY = 6
     SKIP = 7
-    SERVER_UPLOAD = 8
 
-    # Paxos Enums
-    PREPARE = 11
-    PROMISE = 12
-    ACCEPT = 13
-    ACCEPT_RESPONSE = 14
-
+class ServerOperation(Enum):
+    """
+    Enum for different types of operations that can be sent between servers.
+    """
+    UPLOAD = 0
+    PREPARE = 1
+    PROMISE = 2
+    ACCEPT = 3
+    ACCEPT_RESPONSE = 4
 
 class Update(Enum):
     """
