@@ -33,6 +33,10 @@ class Server:
         self.tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
+        # TCP Stream Setup
+        self.tcp_stream_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.tcp_stream_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
         # Audio UDP Setup
         self.audio_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.audio_udp_sock.setsockopt(
@@ -237,6 +241,8 @@ class Server:
                     self.action = Update.SKIP
                     self.action_mutex.release()
                     message = 'Song skipped.'
+                elif opcode == Operation.PING:
+                    print('ping')
 
                 # Send the message back to the client
                 if message:
@@ -404,12 +410,15 @@ class Server:
         self.logger.info('Server started!')
         # Bind tcp, udp, internal sockets to ports
         self.tcp_sock.bind((socket.gethostname(), self.machine.tcp_port))
+        self.tcp_stream_sock.bind((socket.gethostname(), self.machine.stream_tcp_port))
+
         self.audio_udp_sock.bind((socket.gethostname(), self.machine.audio_udp_port))
         self.update_udp_sock.bind((socket.gethostname(), self.machine.update_udp_port))
         self.internal_socket.bind((socket.gethostname(), self.machine.internal_port))
 
         # Listen for incoming connections
         self.tcp_sock.listen(5)
+        self.tcp_stream_sock.listen(5)
         self.internal_socket.listen(5)
 
         procs = list()
@@ -423,7 +432,7 @@ class Server:
         stream_proc = threading.Thread(target=self.stream_audio, args=())
         stream_proc.start()
 
-        inputs = [self.tcp_sock, self.audio_udp_sock, self.update_udp_sock, self.internal_socket]
+        inputs = [self.tcp_sock, self.tcp_stream_sock, self.audio_udp_sock, self.update_udp_sock, self.internal_socket]
         procs = [stream_proc, client_update_proc]
         
         self.logger.info('Connecting to Server Replicas')
@@ -437,13 +446,23 @@ class Server:
                     conn, addr = sock.accept()
 
                     self.logger.info(
-                        f'[+] TCP connected to {addr[0]} ({addr[1]})')
+                        f'[+] Upload TCP connected to {addr[0]} ({addr[1]})')
 
                     t = threading.Thread(
                         target=self.handle_tcp_conn, args=(conn,))
                     t.start()
                     procs.append(t)
                  # If the socket is the audio UDP socket, add the address to the list
+                elif sock == self.tcp_stream_sock:
+                    conn, addr = sock.accept()
+
+                    self.logger.info(
+                        f'[+] Stream TCP connected to {addr[0]} ({addr[1]})')
+
+                    t = threading.Thread(
+                        target=self.handle_tcp_conn, args=(conn,))
+                    t.start()
+                    procs.append(t)
                 elif sock == self.audio_udp_sock:
                     _, addr = sock.recvfrom(BUFF_SIZE)
 
