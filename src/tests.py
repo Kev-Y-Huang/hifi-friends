@@ -3,9 +3,9 @@ import socket
 import unittest
 from unittest.mock import MagicMock, mock_open, patch, Mock
 
-from client import Client, Song
-from server import Server
-from utils import Operation, Update
+from client_paxos import Client, Song
+from server_paxos import Server
+from utils import Operation, Update, ServerOperation
 from wire_protocol import (
     pack_packet, 
     unpack_packet, 
@@ -71,7 +71,7 @@ class TestClient(unittest.TestCase):
         self.mock_queue = None
 
 
-    @patch('client.socket.socket')
+    @patch('client_paxos.socket.socket')
     def test_upload_file_flask(self, mock_socket):
         self.setUp()
         # create object self.file with attribute filename
@@ -85,7 +85,7 @@ class TestClient(unittest.TestCase):
         self.tearDown()
 
 
-    @patch('client.socket.socket')
+    @patch('client_paxos.socket.socket')
     def test_queue_song(self, mock_socket):
         self.setUp()
         self.file = MagicMock()
@@ -98,7 +98,7 @@ class TestClient(unittest.TestCase):
         self.tearDown()
 
 
-    @patch('client.socket.socket')
+    @patch('client_paxos.socket.socket')
     def test_get_song_list(self, mock_socket):
         self.setUp()
         mock_recv = MagicMock(return_value=b'test song 1\ntest song 2')
@@ -161,7 +161,7 @@ class TestPaxos(unittest.TestCase):
         conn = Mock()
         self.paxos.machines = {2: Mock(conn=conn), 3: Mock(conn=conn)}
         self.paxos.send_prepare()
-        conn.send.assert_any_call(pack_opcode(Operation.PREPARE))
+        conn.send.assert_any_call(pack_opcode(ServerOperation.PREPARE))
         conn.send.assert_any_call(pack_packet(self.paxos.server_id, self.paxos.gen_number, ""))
 
     def test_send_promise(self):
@@ -171,7 +171,7 @@ class TestPaxos(unittest.TestCase):
         self.paxos.machines = {proposer_id: proposer}
         self.paxos.promise_value = 0
         self.paxos.send_promise(proposer_id, "100")
-        conn.send.assert_any_call(pack_opcode(Operation.PROMISE))
+        conn.send.assert_any_call(pack_opcode(ServerOperation.PROMISE))
         conn.send.assert_any_call(pack_packet(self.paxos.server_id, 100, ""))
 
     def test_handle_promise_no_accept(self):

@@ -68,22 +68,24 @@ All tests should pass.
 ```
 ├── src        # All of the source code is here
 |   ├── __init__.py	            # Initializes application from config file
-│   ├── client.py               # Code to support the client (deprecated)
-│   ├── server.py               # Code for server (deprecated)
-│   ├── app.py                  # Code for Flask client (deprecated)
-│   ├── client-paxos.py         # Code to support the client (deprecated)
-│   ├── server-paxos.py         # Code for server (deprecated)
+|   ├── deprecated              # Deprecated FIles
+|   |   ├── static     
+|   |   │   ├── script.js       # Supporting JavaScript for the client (deprecated)
+|   |   │   ├── sound.gif       
+|   |   |   └── styles.css      # Supporting style file for the client (deprecated)
+|   |   └── templates           # Supporting templates for Flask app (deprecated)
+|   |   |   └── index.html      # HTML files
+|   |   ├── music_service.py    # Code for the music service (deprecated)          
+|   |   ├── app.py              # Code for Flask client (deprecated)
+|   |   ├── client.py           # Code to support the client (deprecated)
+|   |   └── server.py           # Code for server (deprecated)
+|   ├── client_paxos.py         # Code for the client
+|   ├── server_paxos.py         # Code for the server
 │   ├── paxos.py                # Code supporting the Paxos algorithm
 │   ├── tests.py                # Contains unit tests
 │   ├── wire_protocol.py        # Code for defining the wire protocol
 │   ├── machines.py             # Code defining the machines and their IPs and ports
 |   └── utils.py                # Defines common functions used by the application
-├── static     # Supporting assets for the client
-│   ├── script.js               # Supporting JavaScript for the client
-│   ├── sound.gif               
-|   └── styles.css              # Supporting style file for the client
-├── templates  # Supporting templates for Flask app (deprecated)
-|   └── index.html              # HTML files
 ├── .gitignore	
 ├── NOTEBOOK.md                 # Engineering notebook	
 └── README.md                   # README
