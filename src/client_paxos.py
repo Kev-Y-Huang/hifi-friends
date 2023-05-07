@@ -152,7 +152,7 @@ class Client:
         """
         # self.check_connection()
         self.server_stream_tcp.send(pack_opcode(Operation.QUEUE))
-        self.server_upload_tcp.send(filename.encode())
+        self.server_stream_tcp.send(filename.encode())
 
     def get_song_list(self):
         """
@@ -369,8 +369,8 @@ class Client:
         try:
             # TCP stream connection
             self.stream_tcp_port = machine.stream_tcp_port
-            self.server_upload_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_upload_tcp.connect((self.host, self.stream_tcp_port))
+            self.server_stream_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_stream_tcp.connect((self.host, self.stream_tcp_port))
 
             # UDP connection for audio
             self.audio_udp_port = machine.audio_udp_port
@@ -439,7 +439,7 @@ class Client:
                 if op_code == '0':
                     break
                 # see if tcp connection is still alive
-                self.check_connection()
+                # self.check_connection()
 
                 if op_code == '1':
                     file_path = input("Enter File Path: ")
