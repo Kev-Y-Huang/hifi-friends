@@ -87,17 +87,25 @@ class Server:
         file_name = c_sock.recv(file_name_size).decode()
         file_size = unpack_num(c_sock.recv(32))
 
+        chunk_size = 4096
+
         self.filename = file_name
 
         if file_name in self.uploaded_files:
             message = f'A file of the same name {file_name} has already been uploaded. Upload canceled.'
             self.logger.error(message)
+
+            # Receive the file so that next recv is accurate
+            # TODO: any way to make this better?
+            while file_size > 0:
+                if file_size < chunk_size:
+                    chunk_size = file_size
+                data = c_sock.recv(chunk_size)
+                file_size -= len(data)
             return message
         
         # Begin receiving the file and writing it to the server files directory
         with open(f'server_{self.server_id}_files/' + file_name, 'wb') as file_to_write:
-            chunk_size = 4096
-
             self.logger.info(f'Receiving file: {file_name}')
 
             while file_size > 0:
