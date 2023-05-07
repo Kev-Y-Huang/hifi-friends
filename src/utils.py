@@ -19,13 +19,6 @@ class Operation(Enum):
     SKIP = 7
     SERVER_UPLOAD = 8
 
-    # Paxos Enums
-    PREPARE = 11
-    PROMISE = 12
-    ACCEPT = 13
-    ACCEPT_RESPONSE = 14
-
-
 class Update(Enum):
     """
     Enum for the different types of events that can occur.
@@ -34,6 +27,13 @@ class Update(Enum):
     PAUSE = 1
     PLAY = 2
     SKIP = 3
+
+class Message(Enum):
+    """
+    Enum for the different types of messages that can be sent from the server.
+    """
+    PRINT = 0
+    QUEUE = 1
 
 
 def setup_logger(level: int = logging.INFO) -> logging.Logger:

@@ -8,9 +8,9 @@ import traceback
 
 import pyaudio
 
-from utils import Operation, Update, poll_read_sock_no_exit, queue_rows
+from utils import Operation, Update, Message, poll_read_sock_no_exit, queue_rows
 from wire_protocol import (pack_num, pack_opcode, unpack_audio_meta,
-                           unpack_state)
+                           unpack_state, unpack_msgcode)
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -62,6 +62,8 @@ class Client:
 
         self.song_queue = queue.Queue()
         self.curr_song_frames = None
+
+        self.song_name_queue = queue.Queue()
 
         self.stream = None
 
@@ -132,33 +134,18 @@ class Client:
         self.server_tcp.send(pack_opcode(Operation.QUEUE))
         self.server_tcp.send(filename.encode())
 
-        # Wait for server to respond
-        message = self.server_tcp.recv(1024).decode()
-        print(message)
-
     def get_song_list(self):
         """
         Gets the available songs for queueing from the server and prints them.
         """
         self.server_tcp.send(pack_opcode(Operation.LIST))
 
-        # Wait for server to respond
-        message = self.server_tcp.recv(1024).decode()
-
-        print(message)
-
-        return message
-
     def get_current_queue(self):
         """
-        Gets the current queue from the server and prints it.
+        Gets the current queue prints it.
         """
-        self.server_tcp.send(pack_opcode(Operation.QUEUED))
-
-        # Wait for server to respond
-        message = self.server_tcp.recv(1024).decode()
-        print(message)
-        return message
+        song_queue_str = ','.join(str(item) for item in self.song_name_queue.queue)
+        print(f'[{song_queue_str}]')
 
     def pause_stream(self):
         """
@@ -167,10 +154,6 @@ class Client:
         if self.stream:
             self.server_tcp.send(pack_opcode(Operation.PAUSE))
             self.is_paused = True
-
-            # Wait for server to respond
-            message = self.server_tcp.recv(1024).decode()
-            print(message)
         else:
             print("No stream to stop.")
 
@@ -181,10 +164,6 @@ class Client:
         if self.stream:
             self.server_tcp.send(pack_opcode(Operation.PLAY))
             self.is_paused = False
-
-            # Wait for server to respond
-            message = self.server_tcp.recv(1024).decode()
-            print(message)
         else:
             print("No stream to play.")
 
@@ -196,10 +175,6 @@ class Client:
             self.server_tcp.send(pack_opcode(Operation.SKIP))
             with self.curr_song_frames.mutex:
                 self.curr_song_frames.queue.clear()
-
-            # Wait for server to respond
-            message = self.server_tcp.recv(1024).decode()
-            print(message)
         else:
             print("No song to skip.")
 
@@ -293,6 +268,9 @@ class Client:
                 self.stream.stop_stream()
                 self.stream.close()
                 self.stream = None
+
+                if not self.song_name_queue.empty():
+                    self.song_name_queue.get()
         except Exception:
             print(traceback.format_exc())
         finally:
@@ -330,6 +308,32 @@ class Client:
             self.update_udp_sock.close()
             print('Server update closed')
 
+    def server_messages(self):
+        """
+        Listen for messages from the server on the TCP socket.
+        """
+        try:
+            while not self.exit.is_set():
+                data = self.server_tcp.recv(1)
+
+                # If there is no data, the connection has been closed
+                if not data:
+                    break
+
+                msgcode = unpack_msgcode(data)
+
+                if msgcode == Message.PRINT:
+                    message = self.server_tcp.recv(1024).decode()
+                    print(message)
+                elif msgcode == Message.QUEUE:
+                    song_name = self.server_tcp.recv(1024).decode()
+                    self.song_name_queue.put(song_name)
+                
+        except Exception as e:
+            print(e)
+        finally:
+            print('Server TCP closed')
+
     def run_client(self):
         """
         Run the client.
@@ -347,8 +351,13 @@ class Client:
             target=self.server_update, args=())
         server_update_proc.start()
 
+        server_messages_proc = threading.Thread(
+            target=self.server_messages, args=())
+        server_messages_proc.start()
+
         try:
             while not self.exit.is_set():
+                time.sleep(0.1)
                 op_code = input("Enter Operation Code: ")
                 if op_code == '0':
                     break
@@ -380,11 +389,13 @@ class Client:
         finally:
             self.exit.set()
 
+            self.server_tcp.close()
+
             stream_proc.join()
             get_audio_data_proc.join()
             server_update_proc.join()
+            server_messages_proc.join()
 
-            self.server_tcp.close()
             print('Client closed')
             sys.exit(1)
 

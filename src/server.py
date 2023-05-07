@@ -7,10 +7,10 @@ import wave
 
 import pyaudio
 
-from utils import (Operation, Update, poll_read_sock_no_exit, queue_rows,
+from utils import (Operation, Update, Message, poll_read_sock_no_exit, queue_rows,
                    send_to_all_addrs, setup_logger)
 from wire_protocol import (pack_audio_meta, pack_state, unpack_num,
-                           unpack_opcode)
+                           pack_msgcode, unpack_opcode)
 
 HOST = socket.gethostname()
 TCP_PORT = 1538
@@ -121,6 +121,9 @@ class Server:
             self.logger.error(message)
         elif os.path.exists(f'server_files/{song_name}'):
             self.song_queue.put(song_name)
+            conn.send(pack_msgcode(Message.QUEUE))
+            conn.send(song_name.encode())
+            time.sleep(0.01)
             message = 'Song queued.'
         else:
             message = f'File {song_name} not found.'
@@ -204,6 +207,7 @@ class Server:
                     self.logger.info('Need to finish implementation.')
 
                 # Send the message back to the client
+                conn.send(pack_msgcode(Message.PRINT))
                 conn.send(message.encode())
         except Exception as e:
             self.logger.exception(e)
@@ -226,12 +230,6 @@ class Server:
                 sample_rate = song.getframerate()
                 channels = song.getnchannels()
 
-                stream = p.open(format=p.get_format_from_width(width),
-                                channels=channels,
-                                rate=sample_rate,
-                                input=True,
-                                frames_per_buffer=CHUNK)
-
                 # Send audio metadata for correct playback
                 self.logger.info(
                     f'Sending width {width}, sample rate {sample_rate}, channels {channels}')
@@ -250,12 +248,10 @@ class Server:
                     # Here you can adjust it according to how fast you want to send data keep it > 0
                     time.sleep(0.001)
 
-                # Stop and close the stream/song file
-                stream.stop_stream()
-                stream.close()
+                # Close the song file
                 song.close()
 
-                self.logger.info('Audio streamed successfully.')
+                self.logger.info('Audio frames sent successfully.')
 
         p.terminate()
 
