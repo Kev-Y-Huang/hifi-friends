@@ -3,20 +3,7 @@ import time
 
 from utils import Operation
 import os
-# from src.utils import upload_file
 from wire_protocol import pack_packet, pack_opcode, pack_num
-from machines import MACHINES, Machine, get_other_machines
-from collections import defaultdict
-# from utils import upload_file
-
-
-class PaxServer:
-    def __init__(self):
-        self.conn = None
-        self.ip = None
-        self.port = None
-        self.accepted = False
-        self.promise_value = 0
 
 
 class Paxos:
@@ -26,10 +13,12 @@ class Paxos:
         self.clock = 0
         self.gen_number = 0
         self.conn = None
+        self.connected = True
 
         self.accept_operation = ""
         self.quorum_reached = False
         self.promise_value = 0
+        self.accept_sent = False
 
     def send_prepare(self):
         """
@@ -40,8 +29,13 @@ class Paxos:
         self.gen_number = int(f'{self.clock}{self.server_id}')
         # send generation number to servers
         for server in self.machines:
-            self.machines[server].conn.send(pack_opcode(Operation.PREPARE))
-            self.machines[server].conn.send(pack_packet(self.server_id, self.gen_number, ""))
+            try:
+                self.machines[server].conn.send(pack_opcode(Operation.PREPARE))
+                self.machines[server].conn.send(pack_packet(self.server_id, self.gen_number, ""))
+            except BrokenPipeError:
+                self.machines[server].connected = False
+
+        print('prepares sent')
 
     def send_promise(self, server_id, gen_number):
         """
@@ -57,6 +51,7 @@ class Paxos:
         proposer_conn.send(pack_opcode(Operation.PROMISE))
         proposer_conn.send(pack_packet(self.server_id, promise_message, self.accept_operation))
         self.gen_number = promise_message
+        print('promise sent')
 
     def handle_promise(self, server_id, gen_number, filename, accept_operation=False):
         """
@@ -85,9 +80,10 @@ class Paxos:
         responses = sum(1 for value in self.machines.values() if value.promise_value == self.gen_number)
 
         # Quorum has been reached, send accept message to all servers
-        if responses >= len(self.machines) // 2:
-            print('should accept')
+        if responses >= len(self.machines) // 2 and not self.accept_sent:
+            self.accept_sent = True
             self.send_accept(filename)
+            print('accept sent')
 
         # All servers have responded, and a quorum has not been reached
         elif any(x.promise_value is None for x in self.machines.values()):
@@ -103,10 +99,14 @@ class Paxos:
         """
         for server_id in self.machines:
             server = self.machines[server_id]
-            if not server.accepted:
-                # op code 10 refers to an upload operation
-                server.conn.send(pack_opcode(Operation.ACCEPT))
-                server.conn.send(pack_packet(self.server_id, self.gen_number, filename))
+            if server.connected and not server.accepted:
+                try:
+                    # op code 10 refers to an upload operation
+                    server.conn.send(pack_opcode(Operation.ACCEPT))
+                    server.conn.send(pack_packet(self.server_id, self.gen_number, filename))
+                except BrokenPipeError:
+                    server.connected = False
+
 
     def handle_accept(self, server_id, gen_number):
         """
@@ -121,17 +121,18 @@ class Paxos:
             # TODO perform actual operation
             proposer_conn.send(pack_packet(self.server_id,  self.gen_number, "accept"))
 
-    def commit_op(self, filename, operation):
+    def commit_op(self, server_id, filename, operation):
         if operation == "upload":
-            for server_id in self.machines:
-                server = self.machines[server_id]
-                if not server.accepted:
-                    try:
-                        s = socket.socket()
-                        s.connect((server.ip, server.internal_port))
-                        upload_file(s, f'server_{self.server_id}_files/{filename}')
-                    except:
-                        print(f'server {server_id} is dead')
+            server = self.machines[server_id]
+            if not server.accepted:
+                try:
+                    s = socket.socket()
+                    s.connect((server.ip, server.internal_port))
+                    upload_file(s, f'server_{self.server_id}_files/{filename}')
+                except:
+                    print(f'server {server_id} is dead')
+
+        self.accept_sent = False
 
 
 def upload_file(conn, file_path):

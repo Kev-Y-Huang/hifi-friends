@@ -60,7 +60,7 @@ MACHINE_TWO = Machine(
 
 # Create a mapping from machine name to information about it
 # MACHINES = [MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO]
-MACHINES = dict(enumerate([MACHINE_ZERO, MACHINE_ONE]))
+MACHINES = dict(enumerate([MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO]))
 
 
 def get_other_machines(id: int):

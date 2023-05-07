@@ -1,6 +1,5 @@
 import os
 import queue
-import random
 import select
 import socket
 import sys
@@ -49,6 +48,7 @@ class Client:
         # TCP connection to server
         self.tcp_port = tcp_port
         self.server_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_number = server_number
 
         # UDP connection to server
         self.udp_port = udp_port
@@ -89,7 +89,7 @@ class Client:
         file_path : str
             The path to the file to upload.
         """
-        for _ in range(2):
+        for _ in range(len(MACHINES)):
             try:
                 self.server_tcp.send(pack_opcode(Operation.UPLOAD))
                 file_name = os.path.basename(file_path)
@@ -101,11 +101,21 @@ class Client:
                     self.server_tcp.sendall(file_to_send.read())
 
                 print('File Sent')
+                # break if file is sent
                 break
-            except:
-                self.server_tcp.close()
+            except (ConnectionRefusedError, BrokenPipeError):
+                self.server_number += 1
+                self.server_number %= len(MACHINES)
                 self.server_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.server_tcp.connect((self.host, MACHINES[1].tcp_port))
+                self.server_tcp.connect((self.host, MACHINES[self.server_number].tcp_port))
+
+            # self.server_tcp.close()
+            # for _ in range(3):
+            #     # Leader election find the lowest index server that is available
+            #     self.server_number += 1
+            #     self.server_number %= len(MACHINES)
+            #     self.server_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            #     self.server_tcp.connect((self.host, MACHINES[self.server_number].tcp_port))
 
     def upload_file_flask(self, file):
         """
@@ -330,11 +340,11 @@ class Client:
                     data)
 
                 if self.stream:
-                    if action == ActionType.PAUSE and self.stream.is_active():
+                    if action == Operation.PAUSE and self.stream.is_active():
                         self.is_paused = True
-                    elif action == ActionType.PLAY and not self.stream.is_active():
+                    elif action == Operation.PLAY and not self.stream.is_active():
                         self.is_paused = False
-                    elif action == ActionType.SKIP:
+                    elif action == Operation.SKIP:
                         self.curr_song_frames.queue.clear()
         except Exception:
             print(traceback.format_exc())

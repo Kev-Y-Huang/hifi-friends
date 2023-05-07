@@ -1,20 +1,20 @@
-import os
 import queue
 import socket
 import threading
-import time
 import wave
+
+import os
+import time
 
 import pyaudio
 import argparse
 
 from utils import (Update, Operation, poll_read_sock_no_exit, queue_rows,
                    send_to_all_addrs, setup_logger)
-from wire_protocol import pack_num, pack_state, unpack_num, unpack_opcode, pack_opcode
+from wire_protocol import pack_num, pack_state, unpack_num, unpack_opcode
 from machines import MACHINES, get_other_machines
-from music_service import User
-from wire_protocol import unpack_opcode, pack_packet, unpack_packet
-from paxos import *
+from wire_protocol import unpack_opcode, unpack_packet
+from paxos import Paxos
 
 
 HOST = socket.gethostname()
@@ -174,6 +174,7 @@ class Server:
                 # If there is no data, the connection has been closed
                 if not data:
                     break
+                print(data.decode())
                 opcode = unpack_opcode(data)
                 message = "No response."
 
@@ -217,17 +218,13 @@ class Server:
                 elif opcode == 6:
                     self.logger.info('Need to finish implementation.')
 
-                elif opcode == Operation.SERVER_UPLOAD:
-                    self.logger.info('[1] Receiving audio file from server.')
-                    message = self.recv_file(sock, False)
-
                 # Send the message back to the client
                 conn.send(message.encode())
         except Exception as e:
             self.logger.exception(e)
         finally:
             self.logger.info('Shutting down TCP handler.')
-            # conn.close()
+            conn.close()
 
     def stream_audio(self):
         """
@@ -367,7 +364,7 @@ class Server:
                         if opcode == Operation.ACCEPT_RESPONSE:
                             print('committing operation')
                             print(self.filename)
-                            self.paxos.commit_op(self.filename, "upload")
+                            self.paxos.commit_op(server_id, self.filename, "upload")
 
         except Exception as e:
             self.logger.exception(e)
@@ -388,6 +385,7 @@ class Server:
                     self.paxos.machines[backup.id].conn = sock
                     self.paxos.machines[backup.id].ip = backup.ip
                     self.paxos.machines[backup.id].port = backup.tcp_port
+                    self.paxos.machines[backup.id].connected = True
                     break
                 except:
                     self.logger.info(f"Setup failed for {backup.id}")
@@ -472,8 +470,9 @@ class Server:
             self.logger.info('Shutting down server.')
         finally:
             # uncomment below to empty directory: for upload debugging
-            # os.system(f'rm -rf server_{self.server_id}_files/*')
+            os.system(f'rm -rf server_{self.server_id}_files/*')
             self.exit.set()
+            self.internal_socket.close()
 
             for proc in procs:
                 proc.join()
