@@ -379,16 +379,19 @@ class Server:
         Sets up the internal connections to the other servers
         """
         for server_id in self.paxos.machines:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             backup = self.paxos.machines[server_id]
-            try:
-                sock.connect((backup.ip, backup.internal_port))
-                print(f"Connected to Server {backup.id} on port {backup.internal_port}")
-                self.paxos.machines[backup.id].conn = sock
-                self.paxos.machines[backup.id].ip = backup.ip
-                self.paxos.machines[backup.id].port = backup.tcp_port
-            except:
-                self.logger.info(f"Setup failed for {backup.id}")
+            while True:
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.connect((backup.ip, backup.internal_port))
+                    print(f"Connected to Server {backup.id} on port {backup.internal_port}")
+                    self.paxos.machines[backup.id].conn = sock
+                    self.paxos.machines[backup.id].ip = backup.ip
+                    self.paxos.machines[backup.id].port = backup.tcp_port
+                    break
+                except:
+                    self.logger.info(f"Setup failed for {backup.id}")
+                    time.sleep(0.5)
         return
 
 
@@ -420,7 +423,6 @@ class Server:
 
         inputs = [self.tcp_sock, self.udp_sock, self.update_udp_sock, self.internal_socket]
         self.logger.info('Connecting to Server Replicas')
-        time.sleep(1.5)
         self.setup_internal_connections()
 
         self.logger.info('Waiting for incoming connections')
