@@ -1,6 +1,5 @@
 import os
 import queue
-import select
 import socket
 import sys
 import threading
@@ -11,15 +10,17 @@ import random
 import pyaudio
 
 from utils import Operation, Update, Message, poll_read_sock_no_exit, queue_rows
-from wire_protocol import (pack_num, pack_opcode, unpack_audio_meta,
+from wire_protocol import (pack_num, pack_opcode, pack_state, unpack_audio_meta,
                            unpack_state, unpack_msgcode)
 from machines import MACHINES
 
+# HOST = '10.250.69.80'
 HOST = socket.gethostname()
 
 server_number = 0
 UPLOAD_TCP_PORT = MACHINES[server_number].upload_tcp_port
 STREAM_TCP_PORT = MACHINES[server_number].stream_tcp_port
+STATE_TCP_PORT = MACHINES[server_number].state_tcp_port
 AUDIO_UDP_PORT = MACHINES[server_number].audio_udp_port
 UPDATE_UDP_PORT = MACHINES[server_number].update_udp_port
 
@@ -45,8 +46,9 @@ class Song:
 
 
 class Client:
-    def __init__(self, host=HOST, upload_tcp_port=UPLOAD_TCP_PORT, stream_tcp_port=STREAM_TCP_PORT, audio_udp_port=AUDIO_UDP_PORT, update_udp_port=UPDATE_UDP_PORT):
+    def __init__(self, host=HOST, upload_tcp_port=UPLOAD_TCP_PORT, stream_tcp_port=STREAM_TCP_PORT, state_tcp_port=STATE_TCP_PORT, audio_udp_port=AUDIO_UDP_PORT, update_udp_port=UPDATE_UDP_PORT):
         self.host = host
+        self.server_number = server_number
 
         # TCP connection to server
         self.upload_server_number = 0
@@ -57,6 +59,10 @@ class Client:
         self.stream_server_number = 0
         self.stream_tcp_port = stream_tcp_port
         self.stream_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        # TCP connection to server
+        self.state_tcp_port = state_tcp_port
+        self.state_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         # UDP connection for audio
         self.audio_udp_port = audio_udp_port
@@ -196,6 +202,22 @@ class Client:
                 self.curr_song_frames.queue.clear()
         else:
             print('No song to skip.')
+
+    def stream_state(self):
+        """
+        Stream state information to the server.
+        """
+        try:
+            self.state_tcp.connect((self.host, self.state_tcp_port))
+
+            while not self.exit.is_set():
+                time.sleep(0.1)
+                self.state_tcp.send(pack_state(self.song_index, self.frame_index, Update.PING))
+        except Exception:
+            print(traceback.format_exc())
+        finally:
+            self.state_tcp.close()
+            print('State stream closed.')
 
     def get_audio_data(self):
         """
@@ -424,6 +446,9 @@ class Client:
         self.upload_tcp_sock.connect((self.host, self.upload_tcp_port))
         self.stream_tcp_sock.connect((self.host, self.stream_tcp_port))
 
+        stream_state_proc = threading.Thread(target=self.stream_state, args=())
+        stream_state_proc.start()
+
         get_audio_data_proc = threading.Thread(
             target=self.get_audio_data, args=())
         get_audio_data_proc.start()
@@ -477,8 +502,9 @@ class Client:
             self.upload_tcp_sock.close()
             self.stream_tcp_sock.close()
 
-            stream_proc.join()
+            stream_state_proc.join()
             get_audio_data_proc.join()
+            stream_proc.join()
             server_update_proc.join()
             server_messages_proc.join()
 

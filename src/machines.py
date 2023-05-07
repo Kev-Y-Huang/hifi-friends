@@ -13,6 +13,7 @@ class Machine:
         id: int,
         ip: str,
         upload_tcp_port: int,
+        state_tcp_port: int,
         audio_udp_port: int,
         update_udp_port: int,
         internal_port: int,
@@ -22,6 +23,7 @@ class Machine:
         self.ip = ip
         self.upload_tcp_port = upload_tcp_port
         self.stream_tcp_port = stream_tcp_port
+        self.state_tcp_port = state_tcp_port
         self.audio_udp_port = audio_udp_port
         self.update_udp_port = update_udp_port
         self.internal_port = internal_port
@@ -36,9 +38,10 @@ MACHINE_ZERO = Machine(
     ip=IP,
     stream_tcp_port=6200,
     upload_tcp_port=6201,
-    audio_udp_port=6202,
-    update_udp_port=6203,
-    internal_port=6204
+    state_tcp_port=6202,
+    audio_udp_port=6203,
+    update_udp_port=6204,
+    internal_port=6205
 )
 
 MACHINE_ONE = Machine(
@@ -47,9 +50,10 @@ MACHINE_ONE = Machine(
     ip=IP,
     stream_tcp_port=6210,
     upload_tcp_port=6211,
-    audio_udp_port=6212,
-    update_udp_port=6213,
-    internal_port=6214
+    state_tcp_port=6212,
+    audio_udp_port=6213,
+    update_udp_port=6214,
+    internal_port=6215
 )
 
 MACHINE_TWO = Machine(
@@ -58,9 +62,10 @@ MACHINE_TWO = Machine(
     ip=IP,
     stream_tcp_port=6220,
     upload_tcp_port=6221,
-    audio_udp_port=6222,
-    update_udp_port=6223,
-    internal_port=6224
+    state_tcp_port=6222,
+    audio_udp_port=6223,
+    update_udp_port=6224,
+    internal_port=6225
 )
 
 # Create a mapping from machine name to information about it

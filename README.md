@@ -28,15 +28,15 @@ server_2_files
 Then, run the servers
 
 ```bash
-python3 src/server-paxos.py -s 0 
-python3 src/server-paxos.py -s 1
-python3 src/server-paxos.py -s 2 
+python3 src/server_paxos.py -s 0 
+python3 src/server_paxos.py -s 1
+python3 src/server_paxos.py -s 2 
 ```
 
 Connect the clients to the server. Modify the `HOST` variable of line 15 of `client-paxos.py` to be the IP address of the server, and update the ports to correspond with the respective machine in `machines.py`.
 
 ```bash
-python3 src/client-paxos.py
+python3 src/client_paxos.py
 ```
 
 After starting the client and connecting to the server successfully, you will be prompted to input an operation code. The client can used these operations to queue, play, pause, and skip songs as specified below:

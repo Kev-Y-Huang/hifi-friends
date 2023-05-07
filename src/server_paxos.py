@@ -12,7 +12,7 @@ import argparse
 from utils import (Operation, Update, Message, ServerOperation, poll_read_sock_no_exit,
                    queue_rows, send_to_all_addrs, setup_logger)
 from wire_protocol import (pack_audio_meta, pack_state, unpack_num,
-                           pack_msgcode, unpack_opcode, unpack_packet, unpack_server_opcode)
+                           pack_msgcode, unpack_opcode, unpack_packet, unpack_server_opcode, unpack_state)
 
 from machines import MACHINES, get_other_machines
 from paxos import Paxos
@@ -36,6 +36,10 @@ class Server:
         # TCP Stream Setup
         self.stream_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.stream_tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        # State TCP Setup
+        self.state_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.state_tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         # Audio UDP Setup
         self.audio_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -285,6 +289,35 @@ class Server:
             self.logger.info('Shutting down Stream TCP handler.')
             conn.close()
 
+    def handle_state_tcp_conn(self, conn: socket.socket):
+        """
+        Handle a TCP client connection for receiving state from clients.
+        ...
+
+        Parameters
+        ----------
+        conn : socket.socket
+            The TCP connection to handle.
+        """
+        inputs = [conn]
+
+        self.logger.info('Waiting for incoming state TCP requests.')
+        try:
+            for sock in poll_read_sock_no_exit(inputs, self.exit):
+                data = sock.recv(12)
+
+                # If there is no data, the connection has been closed
+                if not data:
+                    break
+
+                song_index, frame_index, _ = unpack_state(data)
+                self.update_most_recent(song_index, frame_index)
+        except Exception as e:
+            self.logger.exception(e)
+        finally:
+            self.logger.info('Shutting down state TCP handler.')
+            conn.close()
+
     def stream_audio(self):
         """
         Stream audio to the client.
@@ -442,6 +475,7 @@ class Server:
         # Bind tcp, udp, internal sockets to ports
         self.upload_tcp_sock.bind((socket.gethostname(), self.machine.upload_tcp_port))
         self.stream_tcp_sock.bind((socket.gethostname(), self.machine.stream_tcp_port))
+        self.state_tcp_sock.bind((socket.gethostname(), self.machine.state_tcp_port))
 
         self.audio_udp_sock.bind((socket.gethostname(), self.machine.audio_udp_port))
         self.update_udp_sock.bind((socket.gethostname(), self.machine.update_udp_port))
@@ -450,6 +484,7 @@ class Server:
         # Listen for incoming connections
         self.upload_tcp_sock.listen(5)
         self.stream_tcp_sock.listen(5)
+        self.state_tcp_sock.listen(5)
         self.internal_socket.listen(5)
 
         procs = list()
@@ -463,7 +498,7 @@ class Server:
         stream_proc = threading.Thread(target=self.stream_audio, args=())
         stream_proc.start()
 
-        inputs = [self.upload_tcp_sock, self.stream_tcp_sock, self.audio_udp_sock, self.update_udp_sock, self.internal_socket]
+        inputs = [self.upload_tcp_sock, self.stream_tcp_sock, self.state_tcp_sock, self.audio_udp_sock, self.update_udp_sock, self.internal_socket]
         procs = [stream_proc, client_update_proc]
         
         self.logger.info('Connecting to Server Replicas')
@@ -494,7 +529,18 @@ class Server:
                         target=self.handle_stream_tcp_conn, args=(conn,))
                     t.start()
                     procs.append(t)
-                # If the socket is the audio UDP socket, add the address to the list
+                # If the socket is the state TCP socket, accept the connection
+                elif sock == self.state_tcp_sock:
+                    conn, addr = sock.accept()
+
+                    self.logger.info(
+                        f'[+] State TCP connected to {addr[0]} ({addr[1]})')
+
+                    t = threading.Thread(
+                        target=self.handle_state_tcp_conn, args=(conn,))
+                    t.start()
+                    procs.append(t)
+                 # If the socket is the audio UDP socket, add the address to the list
                 elif sock == self.audio_udp_sock:
                     _, addr = sock.recvfrom(BUFF_SIZE)
 
