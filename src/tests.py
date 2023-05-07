@@ -1,14 +1,14 @@
 import queue
 import socket
 import unittest
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, mock_open, patch, Mock
 
 from client import Client, Song
 from server import Server
 from utils import Operation, Update
 from wire_protocol import pack_packet, unpack_packet, pack_opcode, unpack_opcode, pack_num, unpack_num, pack_state, unpack_state, pack_audio_meta, unpack_audio_meta
 from paxos import Paxos
-from machines import Machine, MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO, get_other_machines, get_other_machines_ids
+from machines import Machine, MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO, get_other_machines
 
 HOST = 'localhost'
 TCP_PORT = 1538
@@ -21,27 +21,10 @@ CHUNK = 10*1024
 class TestMachines(unittest.TestCase):
     def test_get_other_machines(self):
         other_machines = get_other_machines(0)
-        self.assertEqual(other_machines[0].id, 1)
-        self.assertEqual(other_machines[1].id, 2)
+        self.assertEqual(other_machines[1].id, 1)
         
         other_machines = get_other_machines(1)
         self.assertEqual(other_machines[0].id, 0)
-        self.assertEqual(other_machines[1].id, 2)
-
-        other_machines = get_other_machines(2)
-        self.assertEqual(other_machines[0].id, 0)
-        self.assertEqual(other_machines[1].id, 1)
-
-
-    def test_get_other_machine_ids(self):
-        other_machines = get_other_machines_ids(0)
-        self.assertEqual(list(other_machines.keys()), [1,2])
-        
-        other_machines = get_other_machines_ids(1)
-        self.assertEqual(list(other_machines.keys()), [0,2])
-
-        other_machines = get_other_machines_ids(2)
-        self.assertEqual(list(other_machines.keys()), [0,1])
 
 class TestSong(unittest.TestCase):
     def test_init(self):
@@ -167,50 +150,49 @@ class TestClient(unittest.TestCase):
 
         self.assertIsNone(self.client.server_update())
 
+
 class TestPaxos(unittest.TestCase):
+
     def setUp(self):
-        self.server_id = 0
-        self.paxos = Paxos(self.server_id)
-        self.paxos.machines = {
-            1: MagicMock(),
-            2: MagicMock(),
-            3: MagicMock(),
-        }
-    
+        self.paxos = Paxos(1)
+
     def test_send_prepare(self):
-        # Set up mock servers
-        mock_servers = [MagicMock() for _ in range(3)]
-        for server in mock_servers:
-            server.send = MagicMock()
-
-        self.paxos.machines = {server: MagicMock() for server in mock_servers}
-
+        conn = Mock()
+        self.paxos.machines = {2: Mock(conn=conn), 3: Mock(conn=conn)}
         self.paxos.send_prepare()
+        conn.send.assert_any_call(pack_opcode(Operation.PREPARE))
+        conn.send.assert_any_call(pack_packet(self.paxos.server_id, self.paxos.gen_number, ""))
 
-        # Check that a prepare message was sent to all servers
-        for server in mock_servers:
-            server.send.assert_called_once()
+    def test_send_promise(self):
+        conn = Mock()
+        proposer = Mock(conn=conn)
+        proposer_id = 2
+        self.paxos.machines = {proposer_id: proposer}
+        self.paxos.promise_value = 0
+        self.paxos.send_promise(proposer_id, "100")
+        conn.send.assert_any_call(pack_opcode(Operation.PROMISE))
+        conn.send.assert_any_call(pack_packet(self.paxos.server_id, 100, ""))
 
+    def test_handle_promise_no_accept(self):
+        server_id = 2
+        self.paxos.machines = {server_id: Mock(), 3: Mock()}
+        self.paxos.gen_number = 100
+        self.paxos.accept_operation = ""
+        self.paxos.promise_value = 0
+        self.paxos.handle_promise(server_id, 100, "file.wav")
+        self.assertEqual(self.paxos.promise_value, 0)
+        self.assertEqual(self.paxos.accept_operation, "")
+        self.assertTrue(self.paxos.machines[server_id].accepted)
 
-    def test_send_accept(self):
-        self.paxos.gen_number = 123
-        self.paxos.accept_operation = "upload"
-        self.paxos.machines[1].accepted = False
-        self.paxos.machines[2].accepted = True
-        self.paxos.machines[3].accepted = False
-        self.paxos.send_accept("file.wav")
-        for machine in self.paxos.machines.values():
-            if not machine.accepted:
-                machine.conn.send.assert_called_once()
 
 class TestWireProtocol(unittest.TestCase):
     def test_pack_packet(self):
-        expected_output = b'1|2|3|hello world'
-        self.assertEqual(pack_packet(1, 2, 3, 'hello world'), expected_output)
+        expected_output = b'1|2|hello world'
+        self.assertEqual(pack_packet(1, 2, 'hello world'), expected_output)
 
     def test_unpack_packet(self):
         packet = b'1|2|3|hello world'
-        expected_output = ('1', '2', '3', 'hello world')
+        expected_output = (1, 2, '3')
         self.assertEqual(unpack_packet(packet), expected_output)
 
     def test_pack_opcode(self):

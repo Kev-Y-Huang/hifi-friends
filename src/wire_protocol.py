@@ -2,11 +2,6 @@ import struct
 
 from utils import Operation, Update
 
-# Packet format:
-# - 4 byte unsigned integer for data length (N)
-# - 1 byte unsigned integer for operation code
-# - N bytes for packet data
-
 
 def pack_packet(server_id: int, gen_number: int, input: str) -> bytes:
     msg = f'{server_id}|{gen_number}|{input}'.encode()
