@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, mock_open, patch
 from client import Client, Song
 from server import Server
 from utils import Operation, Update
-from wire_protocol import pack_packet, pack_opcode, pack_num
+from wire_protocol import pack_packet, unpack_packet, pack_opcode, unpack_opcode, pack_num, unpack_num, pack_state, unpack_state, pack_audio_meta, unpack_audio_meta
 from paxos import Paxos
 from machines import Machine, MACHINE_ZERO, MACHINE_ONE, MACHINE_TWO, get_other_machines, get_other_machines_ids
 
@@ -203,8 +203,52 @@ class TestPaxos(unittest.TestCase):
             if not machine.accepted:
                 machine.conn.send.assert_called_once()
 
+class TestWireProtocol(unittest.TestCase):
+    def test_pack_packet(self):
+        expected_output = b'1|2|3|hello world'
+        self.assertEqual(pack_packet(1, 2, 3, 'hello world'), expected_output)
 
-    
+    def test_unpack_packet(self):
+        packet = b'1|2|3|hello world'
+        expected_output = ('1', '2', '3', 'hello world')
+        self.assertEqual(unpack_packet(packet), expected_output)
+
+    def test_pack_opcode(self):
+        expected_output = b'\x01'
+        self.assertEqual(pack_opcode(Operation.UPLOAD), expected_output)
+
+    def test_unpack_opcode(self):
+        opcode = b'\x02'
+        expected_output = Operation.QUEUE
+        self.assertEqual(unpack_opcode(opcode), expected_output)
+
+    def test_pack_num(self):
+        expected_output = b'00001010'
+        self.assertEqual(pack_num(10, 8), expected_output)
+
+    def test_unpack_num(self):
+        num = b'00001010'
+        expected_output = 10
+        self.assertEqual(unpack_num(num), expected_output)
+
+    def test_pack_state(self):
+        expected_output = b'\x00\x00\x00\x01\x00\x00\x00\x02\x00\x00\x00\x02'
+        self.assertEqual(pack_state(1, 2, Update.PLAY), expected_output)
+
+    def test_unpack_state(self):
+        state = b'\x00\x00\x00\x01\x00\x00\x00\x02\x00\x00\x00\x02'
+        expected_output = (1, 2, Update.PLAY)
+        self.assertEqual(unpack_state(state), expected_output)
+
+    def test_pack_audio_meta(self):
+        expected_output = b'\x00\x00\x00\x00\x04\x00\x00\x00\x80\x00\x00\x01\x02'
+        self.assertEqual(pack_audio_meta(4, 128, 258), expected_output)
+
+    def test_unpack_audio_meta(self):
+        audio_meta = b'\x00\x00\x00\x00\x04\x00\x00\x00\x80\x00\x00\x01\x02'
+        expected_output = (0, 4, 128, 258)
+        self.assertEqual(unpack_audio_meta(audio_meta), expected_output)
+
 
 if __name__ == '__main__':
     unittest.main()
