@@ -469,7 +469,8 @@ class Server:
         except KeyboardInterrupt:
             self.logger.info('Shutting down server.')
         finally:
-            os.system(f'rm -rf server_{self.server_id}_files/*')
+            # uncomment below to empty directory: for upload debugging
+            # os.system(f'rm -rf server_{self.server_id}_files/*')
             self.exit.set()
 
             for proc in procs:
