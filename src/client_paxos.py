@@ -338,7 +338,8 @@ class Client:
 
                 # If there is no data, the connection has been closed
                 if not data:
-                    break
+                    self.check_connection()
+                    continue
 
                 msgcode = unpack_msgcode(data)
 
