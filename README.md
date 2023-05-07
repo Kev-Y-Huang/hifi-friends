@@ -39,18 +39,19 @@ Connect the clients to the server. Modify the `HOST` variable of line 15 of `cli
 python3 src/client-paxos.py
 ```
 
-After starting the client and connecting to the server successfully, you will be prompted to input an operation code. Operation in the client can then be used to queue, play, pause, and skips songs as the following:
+After starting the client and connecting to the server successfully, you will be prompted to input an operation code. The client can used these operations to queue, play, pause, and skip songs as specified below:
 
 ```
 Enter Operation Code:
 1 -> Upload a song to the server. You will be prompted the file name
 2 -> Queue a song to the server. You will be prompted the file name. The song will automatically start playing after the current song finishes (if no song is playing, it will start playing immediately)
-3 -> List the songs in the server
+3 -> List the songs available in the server. These are the songs that can be queued
 4 -> List the current queue
 5 -> Pause the current song
 6 -> Play the current song
 7 -> Skip the current song
 ```
+Note that when a song is queued, paused, played, or skipped, this affects all clients; i.e., all clients are listening to a synchronized/shared audio stream.
 
 
 ## How to run the tests
