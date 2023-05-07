@@ -207,7 +207,7 @@ class Server:
                     self.logger.info('[1] Receiving audio file.')
                     self.recv_file(sock)
                 elif opcode == Operation.PING:
-                    print('ping')
+                    self.logger.info('[8] Receving ping.')
 
         except Exception as e:
             self.logger.exception(e)
@@ -277,7 +277,6 @@ class Server:
 
                 # Send the message back to the client
                 if message:
-                    print('sending print message')
                     sock.send(pack_msgcode(Message.PRINT))
                     sock.send(message.encode())
         except Exception as e:
@@ -423,7 +422,7 @@ class Server:
                 try:
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     sock.connect((backup.ip, backup.internal_port))
-                    print(f"Connected to Server {backup.id} on port {backup.internal_port}")
+                    self.logger.info(f"Connected to Server {backup.id} on port {backup.internal_port}")
                     self.paxos.machines[backup.id].conn = sock
                     self.paxos.machines[backup.id].ip = backup.ip
                     self.paxos.machines[backup.id].port = backup.upload_tcp_port

@@ -49,14 +49,14 @@ class Client:
         self.host = host
 
         # TCP connection to server
+        self.upload_server_number = 0
         self.upload_tcp_port = upload_tcp_port
         self.upload_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         # TCP connection to server
+        self.stream_server_number = 0
         self.stream_tcp_port = stream_tcp_port
         self.stream_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_number = server_number
-
 
         # UDP connection for audio
         self.audio_udp_port = audio_udp_port
@@ -87,6 +87,9 @@ class Client:
 
         # Keeps track of whether audio is paused or not for everybody
         self.is_paused = False
+
+        self.audio_udp_inputs = list()
+        self.update_udp_inputs = list()
 
     def upload_file(self, file_path):
         """
@@ -154,7 +157,6 @@ class Client:
         """
         Gets the available songs for queueing from the server and prints them.
         """
-        print('sending op code now')
         self.stream_tcp_sock.send(pack_opcode(Operation.LIST))
 
     def get_current_queue(self):
@@ -172,7 +174,7 @@ class Client:
             self.stream_tcp_sock.send(pack_opcode(Operation.PAUSE))
             self.is_paused = True
         else:
-            print("No stream to stop.")
+            print('No stream to stop.')
 
     def play_stream(self):
         """
@@ -182,7 +184,7 @@ class Client:
             self.stream_tcp_sock.send(pack_opcode(Operation.PLAY))
             self.is_paused = False
         else:
-            print("No stream to play.")
+            print('No stream to play.')
 
     def skip_song(self):
         """
@@ -193,18 +195,18 @@ class Client:
             with self.curr_song_frames.mutex:
                 self.curr_song_frames.queue.clear()
         else:
-            print("No song to skip.")
+            print('No song to skip.')
 
     def get_audio_data(self):
         """
         Get audio data from the server.
         """
-        inputs = [self.audio_udp_sock]
+        self.audio_udp_inputs.append(self.audio_udp_sock)
 
         try:
             self.audio_udp_sock.sendto(
                 b'Connect', (self.host, self.audio_udp_port))
-            for sock in poll_read_sock_no_exit(inputs, self.exit):
+            for sock in poll_read_sock_no_exit(self.audio_udp_inputs, self.exit):
                 frame, _ = sock.recvfrom(BUFF_SIZE)
 
                 if len(frame) == 13:
@@ -298,12 +300,13 @@ class Client:
         """
         Update the server with the current state of the audio stream for the client.
         """
-        inputs = [self.update_udp_sock]
+        self.update_udp_inputs.append(self.update_udp_sock)
+
         self.update_udp_sock.sendto(
             b'Connect', (self.host, self.update_udp_port))
 
         try:
-            for sock in poll_read_sock_no_exit(inputs, self.exit):
+            for sock in poll_read_sock_no_exit(self.update_udp_inputs, self.exit):
                 data, _ = sock.recvfrom(BUFF_SIZE)
 
                 if not data:
@@ -331,13 +334,10 @@ class Client:
         """
         try:
             while not self.exit.is_set():
-                print('trying to receive')
                 data = self.stream_tcp_sock.recv(1)
-                print('recevied')
 
                 # If there is no data, the connection has been closed
                 if not data:
-                    print('connected closed')
                     break
 
                 msgcode = unpack_msgcode(data)
@@ -358,26 +358,31 @@ class Client:
             self.upload_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.upload_tcp_sock.connect((self.host, self.upload_tcp_port))
         except (BrokenPipeError, ConnectionResetError):
-            print('broken')
             return
     def connect_stream(self, machine):
         try:
             self.stream_tcp_port = machine.stream_tcp_port
             self.stream_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.stream_tcp_sock.connect((self.host, self.stream_tcp_port))
-            print('ran connected')
 
             # UDP connection for audio
             self.audio_udp_port = machine.audio_udp_port
             self.audio_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.audio_udp_sock.setsockopt(
                 socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
+            self.audio_udp_sock.sendto(
+                b'Connect', (self.host, self.audio_udp_port))
+            self.audio_udp_inputs.append(self.audio_udp_sock)
 
             # UDP connection for server updates
             self.update_udp_port = machine.update_udp_port
             self.update_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.update_udp_sock.setsockopt(
                 socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
+            self.update_udp_sock.sendto(
+                b'Connect', (self.host, self.update_udp_port))
+            self.update_udp_inputs.append(self.update_udp_sock)
+            
         except (BrokenPipeError, ConnectionResetError):
             return
 
@@ -385,15 +390,15 @@ class Client:
         for i in range(len(MACHINES)):
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                print(MACHINES[i].upload_tcp_port)
+                # print(MACHINES[i].upload_tcp_port)
                 sock.connect((self.host, MACHINES[i].upload_tcp_port))
                 sock.send(pack_opcode(Operation.PING))
-                print('pinged')
+                # print('pinged')
                 MACHINES[i].connected = True
                 sock.close()
             except (BrokenPipeError, ConnectionRefusedError):
                 # print(e)
-                print(f'server {i} is down')
+                # print(f'server {i} is down')
                 MACHINES[i].connected = False
 
         connected_servers = [MACHINES[machine] for machine in MACHINES if MACHINES[machine].connected]
@@ -401,11 +406,16 @@ class Client:
             print('All servers are down')
             sys.exit(1)
 
+        # Connect to random server for uploading
         m = random.choice(connected_servers)
-        print("upload tcp connected to server ", m.id)
-        print("stream connections connected to server ", connected_servers[0].id)
-        self.connect_stream(connected_servers[0])
+        self.upload_server_number = m.id
         self.connect_upload(m)
+
+        # Reconnect to next server if stream server is dead
+        if self.stream_server_number != connected_servers[0].id:
+            # print("stream connections connected to server ", connected_servers[0].id)
+            self.stream_server_number = connected_servers[0].id
+            self.connect_stream(connected_servers[0])
 
     def run_client(self):
         """
