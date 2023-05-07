@@ -30,12 +30,12 @@ class Server:
         self.machine = MACHINES[server_id]
 
         # TCP Setup
-        self.tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.upload_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.upload_tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         # TCP Stream Setup
-        self.tcp_stream_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.tcp_stream_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.stream_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.stream_tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         # Audio UDP Setup
         self.audio_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -99,9 +99,8 @@ class Server:
             message = f'A file of the same name {file_name} has already been uploaded. Upload canceled.'
             self.logger.error(message)
 
-            # Tell client file finished uploading
+            # Send message to client
             if replicate:
-                c_sock.send(pack_msgcode(Message.DONE_UPLOADING))
                 c_sock.send(message.encode())
 
             # Receive the file so that next recv is accurate
@@ -132,7 +131,6 @@ class Server:
 
         if replicate:
             # Tell client file finished uploading
-            c_sock.send(pack_msgcode(Message.DONE_UPLOADING))
             c_sock.send(message.encode())
             
             self.paxos.send_prepare()
@@ -181,10 +179,10 @@ class Server:
         """
         song_queue_str = ','.join(str(item) for item in self.song_queue.queue)
         return f'[{song_queue_str}]'
-
-    def handle_tcp_conn(self, conn: socket.socket):
+    
+    def handle_upload_tcp_conn(self, conn: socket.socket):
         """
-        Handle a TCP client connection.
+        Handle a TCP client connection for uploading
         ...
 
         Parameters
@@ -194,7 +192,42 @@ class Server:
         """
         inputs = [conn]
 
-        self.logger.info('Waiting for incoming TCP requests.')
+        self.logger.info('Waiting for incoming Upload TCP requests.')
+        try:
+            for sock in poll_read_sock_no_exit(inputs, self.exit):
+                data = sock.recv(1)
+
+                # If there is no data, the connection has been closed
+                if not data:
+                    break
+
+                opcode = unpack_opcode(data)
+                
+                if opcode == Operation.UPLOAD:
+                    self.logger.info('[1] Receiving audio file.')
+                    self.recv_file(sock)
+                elif opcode == Operation.PING:
+                    print('ping')
+
+        except Exception as e:
+            self.logger.exception(e)
+        finally:
+            self.logger.info('Shutting down Upload TCP handler.')
+            conn.close()
+
+    def handle_stream_tcp_conn(self, conn: socket.socket):
+        """
+        Handle a TCP client connection for streaming
+        ...
+
+        Parameters
+        ----------
+        conn : socket.socket
+            The TCP connection to handle.
+        """
+        inputs = [conn]
+
+        self.logger.info('Waiting for incoming Stream TCP requests.')
         try:
             for sock in poll_read_sock_no_exit(inputs, self.exit):
                 data = sock.recv(1)
@@ -241,17 +274,16 @@ class Server:
                     self.action = Update.SKIP
                     self.action_mutex.release()
                     message = 'Song skipped.'
-                elif opcode == Operation.PING:
-                    print('ping')
 
                 # Send the message back to the client
                 if message:
-                    conn.send(pack_msgcode(Message.PRINT))
-                    conn.send(message.encode())
+                    print('sending print message')
+                    sock.send(pack_msgcode(Message.PRINT))
+                    sock.send(message.encode())
         except Exception as e:
             self.logger.exception(e)
         finally:
-            self.logger.info('Shutting down TCP handler.')
+            self.logger.info('Shutting down Stream TCP handler.')
             conn.close()
 
     def stream_audio(self):
@@ -394,7 +426,7 @@ class Server:
                     print(f"Connected to Server {backup.id} on port {backup.internal_port}")
                     self.paxos.machines[backup.id].conn = sock
                     self.paxos.machines[backup.id].ip = backup.ip
-                    self.paxos.machines[backup.id].port = backup.tcp_port
+                    self.paxos.machines[backup.id].port = backup.upload_tcp_port
                     self.paxos.machines[backup.id].connected = True
                     break
                 except:
@@ -409,16 +441,16 @@ class Server:
         """
         self.logger.info('Server started!')
         # Bind tcp, udp, internal sockets to ports
-        self.tcp_sock.bind((socket.gethostname(), self.machine.tcp_port))
-        self.tcp_stream_sock.bind((socket.gethostname(), self.machine.stream_tcp_port))
+        self.upload_tcp_sock.bind((socket.gethostname(), self.machine.upload_tcp_port))
+        self.stream_tcp_sock.bind((socket.gethostname(), self.machine.stream_tcp_port))
 
         self.audio_udp_sock.bind((socket.gethostname(), self.machine.audio_udp_port))
         self.update_udp_sock.bind((socket.gethostname(), self.machine.update_udp_port))
         self.internal_socket.bind((socket.gethostname(), self.machine.internal_port))
 
         # Listen for incoming connections
-        self.tcp_sock.listen(5)
-        self.tcp_stream_sock.listen(5)
+        self.upload_tcp_sock.listen(5)
+        self.stream_tcp_sock.listen(5)
         self.internal_socket.listen(5)
 
         procs = list()
@@ -432,7 +464,7 @@ class Server:
         stream_proc = threading.Thread(target=self.stream_audio, args=())
         stream_proc.start()
 
-        inputs = [self.tcp_sock, self.tcp_stream_sock, self.audio_udp_sock, self.update_udp_sock, self.internal_socket]
+        inputs = [self.upload_tcp_sock, self.stream_tcp_sock, self.audio_udp_sock, self.update_udp_sock, self.internal_socket]
         procs = [stream_proc, client_update_proc]
         
         self.logger.info('Connecting to Server Replicas')
@@ -441,28 +473,29 @@ class Server:
         self.logger.info('Waiting for incoming connections')
         try:
             for sock in poll_read_sock_no_exit(inputs, self.exit):
-                # If the socket is the TCP socket, accept the connection
-                if sock == self.tcp_sock:
+                # If the socket is the upload TCP socket, accept the connection
+                if sock == self.upload_tcp_sock:
                     conn, addr = sock.accept()
 
                     self.logger.info(
                         f'[+] Upload TCP connected to {addr[0]} ({addr[1]})')
 
                     t = threading.Thread(
-                        target=self.handle_tcp_conn, args=(conn,))
+                        target=self.handle_upload_tcp_conn, args=(conn,))
                     t.start()
                     procs.append(t)
-                 # If the socket is the audio UDP socket, add the address to the list
-                elif sock == self.tcp_stream_sock:
+                # If the socket is the stream TCP socket, accept the connection
+                elif sock == self.stream_tcp_sock:
                     conn, addr = sock.accept()
 
                     self.logger.info(
                         f'[+] Stream TCP connected to {addr[0]} ({addr[1]})')
 
                     t = threading.Thread(
-                        target=self.handle_tcp_conn, args=(conn,))
+                        target=self.handle_stream_tcp_conn, args=(conn,))
                     t.start()
                     procs.append(t)
+                # If the socket is the audio UDP socket, add the address to the list
                 elif sock == self.audio_udp_sock:
                     _, addr = sock.recvfrom(BUFF_SIZE)
 
