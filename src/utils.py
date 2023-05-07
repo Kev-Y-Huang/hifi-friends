@@ -35,6 +35,13 @@ class Update(Enum):
     PLAY = 2
     SKIP = 3
 
+class Message(Enum):
+    """
+    Enum for the different types of messages that can be sent from the server.
+    """
+    PRINT = 0
+    QUEUE = 1
+
 
 def setup_logger(level: int = logging.INFO) -> logging.Logger:
     """
