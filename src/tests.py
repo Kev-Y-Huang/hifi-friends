@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, mock_open, patch
 from client import Client, Song
 from server import Server
 from utils import Operation, Update
-from wire_protocol import (pack_num, pack_opcode, pack_state, unpack_num,
-                           unpack_state)
+from wire_protocol import pack_packet, pack_opcode, pack_num
+from paxos import Paxos
 
 HOST = 'localhost'
 TCP_PORT = 1538
@@ -142,19 +142,42 @@ class TestClient(unittest.TestCase):
 
         self.assertIsNone(self.client.server_update())
 
-# class TestClient(unittest.TestCase):
-#     def setUp(self):
-#         self.client = Server()
-#         self.mock_socket = MagicMock(spec=socket.socket)
-#         self.mock_queue = MagicMock(spec=queue.Queue)
+class TestPaxos(unittest.TestCase):
+    def setUp(self):
+        self.server_id = 0
+        self.paxos = Paxos(self.server_id)
+        self.paxos.machines = {
+            1: MagicMock(),
+            2: MagicMock(),
+            3: MagicMock(),
+        }
+    
+    def test_send_prepare(self):
+        # Set up mock servers
+        mock_servers = [MagicMock() for _ in range(3)]
+        for server in mock_servers:
+            server.send = MagicMock()
+
+        self.paxos.machines = {server: MagicMock() for server in mock_servers}
+
+        self.paxos.send_prepare()
+
+        # Check that a prepare message was sent to all servers
+        for server in mock_servers:
+            server.send.assert_called_once()
 
 
-#     def tearDown(self):
-#         self.client = None
-#         self.mock_socket = None
-#         self.mock_queue = None
-
-
+    def test_send_accept(self):
+        self.paxos.gen_number = 123
+        self.paxos.accept_operation = "upload"
+        self.paxos.machines[1].accepted = False
+        self.paxos.machines[2].accepted = True
+        self.paxos.machines[3].accepted = False
+        self.paxos.send_accept("file.wav")
+        for machine in self.paxos.machines.values():
+            if not machine.accepted:
+                machine.conn.send.assert_called_once()
+    
 
 if __name__ == '__main__':
     unittest.main()
