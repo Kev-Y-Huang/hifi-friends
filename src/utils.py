@@ -43,6 +43,7 @@ class Message(Enum):
     """
     PRINT = 0
     QUEUE = 1
+    DONE_UPLOADING = 2
 
 
 def setup_logger(level: int = logging.INFO) -> logging.Logger:

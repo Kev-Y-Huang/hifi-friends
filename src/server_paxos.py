@@ -95,6 +95,11 @@ class Server:
             message = f'A file of the same name {file_name} has already been uploaded. Upload canceled.'
             self.logger.error(message)
 
+            # Tell client file finished uploading
+            if replicate:
+                c_sock.send(pack_msgcode(Message.DONE_UPLOADING))
+                c_sock.send(message.encode())
+
             # Receive the file so that next recv is accurate
             # TODO: any way to make this better?
             while file_size > 0:
@@ -102,6 +107,7 @@ class Server:
                     chunk_size = file_size
                 data = c_sock.recv(chunk_size)
                 file_size -= len(data)
+                
             return message
         
         # Begin receiving the file and writing it to the server files directory
@@ -121,6 +127,10 @@ class Server:
         self.logger.info('File received successfully.')
 
         if replicate:
+            # Tell client file finished uploading
+            c_sock.send(pack_msgcode(Message.DONE_UPLOADING))
+            c_sock.send(message.encode())
+            
             self.paxos.send_prepare()
 
         return message
@@ -190,7 +200,7 @@ class Server:
                     break
 
                 opcode = unpack_opcode(data)
-                message = 'No response.'
+                message = None
 
                 if opcode == Operation.CLOSE:
                     self.logger.info(
@@ -199,7 +209,7 @@ class Server:
                     message = 'Close not implemented.'
                 elif opcode == Operation.UPLOAD:
                     self.logger.info('[1] Receiving audio file.')
-                    message = self.recv_file(sock)
+                    self.recv_file(sock)
                 elif opcode == Operation.QUEUE:
                     self.logger.info('[2] Queuing song.')
                     message = self.enqueue_song(sock)
@@ -227,13 +237,11 @@ class Server:
                     self.action = Update.SKIP
                     self.action_mutex.release()
                     message = 'Song skipped.'
-                # TODO implement the rest of the opcodes
-                elif opcode == 6:
-                    self.logger.info('Need to finish implementation.')
 
                 # Send the message back to the client
-                conn.send(pack_msgcode(Message.PRINT))
-                conn.send(message.encode())
+                if message:
+                    conn.send(pack_msgcode(Message.PRINT))
+                    conn.send(message.encode())
         except Exception as e:
             self.logger.exception(e)
         finally:

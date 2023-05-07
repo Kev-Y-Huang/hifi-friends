@@ -65,6 +65,9 @@ class Client:
 
         self.exit = threading.Event()
 
+        self.can_input = threading.Event()
+        self.can_input.set()
+
         self.song_queue = queue.Queue()
         self.curr_song_frames = None
 
@@ -93,6 +96,9 @@ class Client:
         """
         for _ in range(len(MACHINES)):
             try:
+                # Pause user input until finished uploading
+                self.can_input.clear()
+
                 self.server_tcp.send(pack_opcode(Operation.UPLOAD))
 
                 file_name = os.path.basename(file_path)
@@ -350,7 +356,12 @@ class Client:
                 elif msgcode == Message.QUEUE:
                     song_name = self.server_tcp.recv(1024).decode()
                     self.song_name_queue.put(song_name)
-                
+                elif msgcode == Message.DONE_UPLOADING:
+                    message = self.server_tcp.recv(1024).decode()
+                    print(message)
+                    # Unpause user input
+                    self.can_input.set()
+
         except Exception as e:
             print(e)
 
@@ -378,6 +389,7 @@ class Client:
         try:
             while not self.exit.is_set():
                 time.sleep(0.1)
+                self.can_input.wait()
                 op_code = input("Enter Operation Code: ")
                 if op_code == '0':
                     break
