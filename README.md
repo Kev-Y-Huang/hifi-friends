@@ -33,7 +33,7 @@ cd python3 src/server-paxos.py -s 1
 cd python3 src/server-paxos.py -s 2 
 ```
 
-Connect the clients to the server. Modify the `HOST' variable of line 15 of `client-paxos.py` to be the IP address of the server.
+Connect the clients to the server. Modify the `HOST` variable of line 15 of `client-paxos.py` to be the IP address of the server, and update the ports to correspond with the respective machine in `machines.py`.
 
 ```bash
 cd python3 src/client-paxos.py
