@@ -5,6 +5,7 @@ import sys
 import threading
 import time
 import traceback
+import random
 
 import pyaudio
 
@@ -17,7 +18,8 @@ from machines import MACHINES
 HOST = socket.gethostname()
 
 server_number = 0
-TCP_PORT = MACHINES[server_number].tcp_port
+UPLOAD_TCP_PORT = MACHINES[server_number].upload_tcp_port
+STREAM_TCP_PORT = MACHINES[server_number].stream_tcp_port
 STATE_TCP_PORT = MACHINES[server_number].state_tcp_port
 AUDIO_UDP_PORT = MACHINES[server_number].audio_udp_port
 UPDATE_UDP_PORT = MACHINES[server_number].update_udp_port
@@ -44,17 +46,23 @@ class Song:
 
 
 class Client:
-    def __init__(self, host=HOST, tcp_port=TCP_PORT, state_tcp_port=STATE_TCP_PORT, audio_udp_port=AUDIO_UDP_PORT, update_udp_port=UPDATE_UDP_PORT):
+    def __init__(self, host=HOST, upload_tcp_port=UPLOAD_TCP_PORT, stream_tcp_port=STREAM_TCP_PORT, state_tcp_port=STATE_TCP_PORT, audio_udp_port=AUDIO_UDP_PORT, update_udp_port=UPDATE_UDP_PORT):
         self.host = host
         self.server_number = server_number
 
         # TCP connection to server
-        self.tcp_port = tcp_port
-        self.server_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.upload_server_number = 0
+        self.upload_tcp_port = upload_tcp_port
+        self.upload_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         # TCP connection to server
+        self.stream_server_number = 0
+        self.stream_tcp_port = stream_tcp_port
+        self.stream_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        # TCP connection for state updates
         self.state_tcp_port = state_tcp_port
-        self.state_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.state_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         # UDP connection for audio
         self.audio_udp_port = audio_udp_port
@@ -69,9 +77,6 @@ class Client:
             socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
 
         self.exit = threading.Event()
-
-        self.can_input = threading.Event()
-        self.can_input.set()
 
         self.song_queue = queue.Queue()
         self.curr_song_frames = None
@@ -89,6 +94,9 @@ class Client:
         # Keeps track of whether audio is paused or not for everybody
         self.is_paused = False
 
+        self.audio_udp_inputs = list()
+        self.update_udp_inputs = list()
+
     def upload_file(self, file_path):
         """
         Upload a file to the server.
@@ -99,37 +107,21 @@ class Client:
         file_path : str
             The path to the file to upload.
         """
-        for _ in range(len(MACHINES)):
-            try:
-                # Pause user input until finished uploading
-                self.can_input.clear()
+        self.upload_tcp_sock.send(pack_opcode(Operation.UPLOAD))
 
-                self.server_tcp.send(pack_opcode(Operation.UPLOAD))
+        file_name = os.path.basename(file_path)
+        self.upload_tcp_sock.send(pack_num(len(file_name), 16))
+        self.upload_tcp_sock.send(file_name.encode())
+        self.upload_tcp_sock.send(pack_num(os.path.getsize(file_path), 32))
 
-                file_name = os.path.basename(file_path)
-                self.server_tcp.send(pack_num(len(file_name), 16))
-                self.server_tcp.send(file_name.encode())
-                self.server_tcp.send(pack_num(os.path.getsize(file_path), 32))
+        with open(file_path, 'rb') as file_to_send:
+            self.upload_tcp_sock.sendall(file_to_send.read())
 
-                with open(file_path, 'rb') as file_to_send:
-                    self.server_tcp.sendall(file_to_send.read())
+        print('File Sent')
 
-                print('File Sent')
-                # break if file is sent
-                break
-            except (ConnectionRefusedError, BrokenPipeError):
-                self.server_number += 1
-                self.server_number %= len(MACHINES)
-                self.server_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.server_tcp.connect((self.host, MACHINES[self.server_number].tcp_port))
-
-            # self.server_tcp.close()
-            # for _ in range(3):
-            #     # Leader election find the lowest index server that is available
-            #     self.server_number += 1
-            #     self.server_number %= len(MACHINES)
-            #     self.server_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            #     self.server_tcp.connect((self.host, MACHINES[self.server_number].tcp_port))
+        # Wait for server to respond
+        message = self.upload_tcp_sock.recv(1024).decode()
+        print(message)
 
     def upload_file_flask(self, file):
         """
@@ -141,16 +133,16 @@ class Client:
         file_path : FileStorage object
             The file to upload.
         """
-        self.server_tcp.send(pack_opcode(Operation.UPLOAD))
+        self.upload_tcp_sock.send(pack_opcode(Operation.UPLOAD))
 
         file_name = file.filename
-        self.server_tcp.send(pack_num(len(file_name), 16))
-        self.server_tcp.send(file_name.encode())
+        self.upload_tcp_sock.send(pack_num(len(file_name), 16))
+        self.upload_tcp_sock.send(file_name.encode())
 
         data = file.read()
 
-        self.server_tcp.send(pack_num(len(data), 32))
-        self.server_tcp.sendall(data)
+        self.upload_tcp_sock.send(pack_num(len(data), 32))
+        self.upload_tcp_sock.sendall(data)
 
         print('File Sent')
 
@@ -164,14 +156,14 @@ class Client:
         filename : str
             The name of the file to queue.
         """
-        self.server_tcp.send(pack_opcode(Operation.QUEUE))
-        self.server_tcp.send(filename.encode())
+        self.stream_tcp_sock.send(pack_opcode(Operation.QUEUE))
+        self.stream_tcp_sock.send(filename.encode())
 
     def get_song_list(self):
         """
         Gets the available songs for queueing from the server and prints them.
         """
-        self.server_tcp.send(pack_opcode(Operation.LIST))
+        self.stream_tcp_sock.send(pack_opcode(Operation.LIST))
 
     def get_current_queue(self):
         """
@@ -185,58 +177,61 @@ class Client:
         Stops the stream.
         """
         if self.stream:
-            self.server_tcp.send(pack_opcode(Operation.PAUSE))
+            self.stream_tcp_sock.send(pack_opcode(Operation.PAUSE))
             self.is_paused = True
         else:
-            print("No stream to stop.")
+            print('No stream to stop.')
 
     def play_stream(self):
         """
         Plays the stream.
         """
         if self.stream:
-            self.server_tcp.send(pack_opcode(Operation.PLAY))
+            self.stream_tcp_sock.send(pack_opcode(Operation.PLAY))
             self.is_paused = False
         else:
-            print("No stream to play.")
+            print('No stream to play.')
 
     def skip_song(self):
         """
         Skips the current song.
         """
         if self.stream:
-            self.server_tcp.send(pack_opcode(Operation.SKIP))
+            self.stream_tcp_sock.send(pack_opcode(Operation.SKIP))
             with self.curr_song_frames.mutex:
                 self.curr_song_frames.queue.clear()
         else:
-            print("No song to skip.")
+            print('No song to skip.')
 
     def stream_state(self):
         """
         Stream state information to the server.
         """
         try:
-            self.state_tcp.connect((self.host, self.state_tcp_port))
+            self.state_tcp_sock.connect((self.host, self.state_tcp_port))
 
             while not self.exit.is_set():
                 time.sleep(0.1)
-                self.state_tcp.send(pack_state(self.song_index, self.frame_index, Update.PING))
+                try:
+                    self.state_tcp_sock.send(pack_state(self.song_index, self.frame_index, Update.PING))
+                except:
+                    self.check_connection()
         except Exception:
             print(traceback.format_exc())
         finally:
-            self.state_tcp.close()
+            self.state_tcp_sock.close()
             print('State stream closed.')
 
     def get_audio_data(self):
         """
         Get audio data from the server.
         """
-        inputs = [self.audio_udp_sock]
+        self.audio_udp_inputs.append(self.audio_udp_sock)
 
         try:
             self.audio_udp_sock.sendto(
                 b'Connect', (self.host, self.audio_udp_port))
-            for sock in poll_read_sock_no_exit(inputs, self.exit):
+            for sock in poll_read_sock_no_exit(self.audio_udp_inputs, self.exit):
                 frame, _ = sock.recvfrom(BUFF_SIZE)
 
                 if len(frame) == 13:
@@ -330,12 +325,13 @@ class Client:
         """
         Update the server with the current state of the audio stream for the client.
         """
-        inputs = [self.update_udp_sock]
+        self.update_udp_inputs.append(self.update_udp_sock)
+
         self.update_udp_sock.sendto(
             b'Connect', (self.host, self.update_udp_port))
 
         try:
-            for sock in poll_read_sock_no_exit(inputs, self.exit):
+            for sock in poll_read_sock_no_exit(self.update_udp_inputs, self.exit):
                 data, _ = sock.recvfrom(BUFF_SIZE)
 
                 if not data:
@@ -359,38 +355,106 @@ class Client:
 
     def server_messages(self):
         """
-        Listen for messages from the server on the TCP socket.
+        Listen for messages from the server on the stream TCP socket.
         """
         try:
             while not self.exit.is_set():
-                data = self.server_tcp.recv(1)
+                data = self.stream_tcp_sock.recv(1)
 
                 # If there is no data, the connection has been closed
                 if not data:
-                    break
+                    self.check_connection()
+                    continue
 
                 msgcode = unpack_msgcode(data)
 
                 if msgcode == Message.PRINT:
-                    message = self.server_tcp.recv(1024).decode()
+                    message = self.stream_tcp_sock.recv(1024).decode()
                     print(message)
                 elif msgcode == Message.QUEUE:
-                    song_name = self.server_tcp.recv(1024).decode()
+                    song_name = self.stream_tcp_sock.recv(1024).decode()
                     self.song_name_queue.put(song_name)
-                elif msgcode == Message.DONE_UPLOADING:
-                    message = self.server_tcp.recv(1024).decode()
-                    print(message)
-                    # Unpause user input
-                    self.can_input.set()
 
         except Exception as e:
             print(e)
+
+    def connect_upload(self, machine):
+        try:
+            self.upload_tcp_port = machine.upload_tcp_port
+            self.upload_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.upload_tcp_sock.connect((self.host, self.upload_tcp_port))
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        
+    def connect_stream(self, machine):
+        try:
+            self.stream_tcp_port = machine.stream_tcp_port
+            self.stream_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.stream_tcp_sock.connect((self.host, self.stream_tcp_port))
+            
+            # TCP connection for state updates
+            self.state_tcp_port = machine.state_tcp_port
+            self.state_tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.state_tcp_sock.connect((self.host, self.state_tcp_port))
+
+            # UDP connection for audio
+            self.audio_udp_port = machine.audio_udp_port
+            self.audio_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.audio_udp_sock.setsockopt(
+                socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
+            self.audio_udp_sock.sendto(
+                b'Connect', (self.host, self.audio_udp_port))
+            self.audio_udp_inputs.append(self.audio_udp_sock)
+
+            # UDP connection for server updates
+            self.update_udp_port = machine.update_udp_port
+            self.update_udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.update_udp_sock.setsockopt(
+                socket.SOL_SOCKET, socket.SO_RCVBUF, BUFF_SIZE)
+            self.update_udp_sock.sendto(
+                b'Connect', (self.host, self.update_udp_port))
+            self.update_udp_inputs.append(self.update_udp_sock)
+            
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
+    def check_connection(self):
+        for i in range(len(MACHINES)):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                # print(MACHINES[i].upload_tcp_port)
+                sock.connect((self.host, MACHINES[i].upload_tcp_port))
+                sock.send(pack_opcode(Operation.PING))
+                # print('pinged')
+                MACHINES[i].connected = True
+                sock.close()
+            except (BrokenPipeError, ConnectionRefusedError):
+                # print(e)
+                # print(f'server {i} is down')
+                MACHINES[i].connected = False
+
+        connected_servers = [MACHINES[machine] for machine in MACHINES if MACHINES[machine].connected]
+        if not connected_servers:
+            print('All servers are down')
+            sys.exit(1)
+
+        # Connect to random server for uploading
+        m = random.choice(connected_servers)
+        self.upload_server_number = m.id
+        self.connect_upload(m)
+
+        # Reconnect to next server if stream server is dead
+        if self.stream_server_number != connected_servers[0].id:
+            # print("stream connections connected to server ", connected_servers[0].id)
+            self.stream_server_number = connected_servers[0].id
+            self.connect_stream(connected_servers[0])
 
     def run_client(self):
         """
         Run the client.
         """
-        self.server_tcp.connect((self.host, self.tcp_port))
+        self.upload_tcp_sock.connect((self.host, self.upload_tcp_port))
+        self.stream_tcp_sock.connect((self.host, self.stream_tcp_port))
 
         stream_state_proc = threading.Thread(target=self.stream_state, args=())
         stream_state_proc.start()
@@ -413,11 +477,11 @@ class Client:
         try:
             while not self.exit.is_set():
                 time.sleep(0.1)
-                self.can_input.wait()
                 op_code = input("Enter Operation Code: ")
                 if op_code == '0':
                     break
-                elif op_code == '1':
+                self.check_connection()
+                if op_code == '1':
                     file_path = input("Enter File Path: ")
                     # check if file path exists
                     if os.path.exists(file_path):
@@ -445,7 +509,8 @@ class Client:
         finally:
             self.exit.set()
 
-            self.server_tcp.close()
+            self.upload_tcp_sock.close()
+            self.stream_tcp_sock.close()
 
             stream_state_proc.join()
             get_audio_data_proc.join()

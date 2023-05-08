@@ -32,7 +32,7 @@ class Paxos:
             try:
                 self.machines[server].conn.send(pack_server_opcode(ServerOperation.PREPARE))
                 self.machines[server].conn.send(pack_packet(self.server_id, self.gen_number, ""))
-            except BrokenPipeError:
+            except:
                 self.machines[server].connected = False
 
         print('prepares sent')
@@ -77,10 +77,13 @@ class Paxos:
             if int(gen_number) >= self.gen_number:
                 self.machines[server_id].promise_value = gen_number
 
-        responses = sum(1 for value in self.machines.values() if value.promise_value == self.gen_number)
 
+        responses = sum(1 for value in self.machines.values() if value.promise_value <= self.gen_number)
+        active_machines = len([x for x in self.machines if self.machines[x].connected])
+        print('active:', active_machines)
+        print('responses:', responses)
         # Quorum has been reached, send accept message to all servers
-        if responses >= len(self.machines) // 2 and not self.accept_sent:
+        if responses >= active_machines//2 and not self.accept_sent:
             self.accept_sent = True
             self.send_accept(filename)
             print('accept sent')

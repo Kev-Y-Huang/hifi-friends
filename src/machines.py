@@ -12,15 +12,17 @@ class Machine:
         self,
         id: int,
         ip: str,
-        tcp_port: int,
+        upload_tcp_port: int,
         state_tcp_port: int,
         audio_udp_port: int,
         update_udp_port: int,
-        internal_port: int
+        internal_port: int,
+        stream_tcp_port: int
     ) -> None:
         self.id = id
         self.ip = ip
-        self.tcp_port = tcp_port
+        self.upload_tcp_port = upload_tcp_port
+        self.stream_tcp_port = stream_tcp_port
         self.state_tcp_port = state_tcp_port
         self.audio_udp_port = audio_udp_port
         self.update_udp_port = update_udp_port
@@ -34,7 +36,8 @@ MACHINE_ZERO = Machine(
     id=0,
     # ip="localhost",
     ip=IP,
-    tcp_port=6201,
+    stream_tcp_port=6200,
+    upload_tcp_port=6201,
     state_tcp_port=6202,
     audio_udp_port=6203,
     update_udp_port=6204,
@@ -45,7 +48,8 @@ MACHINE_ONE = Machine(
     id=1,
     # ip="localhost",
     ip=IP,
-    tcp_port=6211,
+    stream_tcp_port=6210,
+    upload_tcp_port=6211,
     state_tcp_port=6212,
     audio_udp_port=6213,
     update_udp_port=6214,
@@ -56,7 +60,8 @@ MACHINE_TWO = Machine(
     id=2,
     # ip="localhost",
     ip=IP,
-    tcp_port=6221,
+    stream_tcp_port=6220,
+    upload_tcp_port=6221,
     state_tcp_port=6222,
     audio_udp_port=6223,
     update_udp_port=6224,
