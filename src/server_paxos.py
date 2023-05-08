@@ -56,7 +56,7 @@ class Server:
         self.internal_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         # List of uploaded files and queue of songs to be played
-        self.uploaded_files = os.listdir(f'server_{self.server_id}_files')
+        self.uploaded_files = [f for f in os.listdir(f'server_{self.server_id}_files') if f.endswith('.wav')]
         self.song_queue = queue.Queue()
 
         # UDP addresses to send audio and update packets to
