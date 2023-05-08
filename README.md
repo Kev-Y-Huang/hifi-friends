@@ -7,13 +7,15 @@ CS 262: Introduction to Distributed Computing.
 
 ## Video Demo
 
-Replication and persistence demo
+Replication and persistence using Paxos demo
 
-![demo1](https://youtu.be/VdeBZ8zMJh0)
+https://user-images.githubusercontent.com/54912191/236712655-9f608eac-464d-4808-b2f6-f59ff9fab368.mp4
+
 
 Synced Audio Play/Pause/Skip demo
 
-![demo2](https://youtu.be/mU0tPr3vGqs)
+https://user-images.githubusercontent.com/54912191/236711952-52220a72-6ea2-48ef-bb17-1e99e187dfe3.mp4
+
 
 ## Built on
 
