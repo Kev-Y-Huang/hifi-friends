@@ -111,6 +111,7 @@ class TestClient(unittest.TestCase):
 
 
     def test_pause_stream(self):
+        self.client.stream_tcp_sock = self.mock_socket
         self.client.stream = True
         self.client.server_tcp = self.mock_socket
         self.client.server_tcp.recv.return_value = b'Test pause'
@@ -175,8 +176,8 @@ class TestPaxos(unittest.TestCase):
         conn.send.assert_any_call(pack_packet(self.paxos.server_id, 100, ""))
 
     def test_handle_promise_no_accept(self):
-        server_id = 2
-        self.paxos.machines = {server_id: Mock(), 3: Mock()}
+        server_id = 1
+        self.paxos.machines = {1: Mock()}
         self.paxos.gen_number = 100
         self.paxos.accept_operation = ""
         self.paxos.promise_value = 0
