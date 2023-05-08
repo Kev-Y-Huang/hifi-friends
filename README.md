@@ -5,6 +5,16 @@
 This is our implementation of a distributed music sharing system as a final project for
 CS 262: Introduction to Distributed Computing.
 
+## Video Demo
+
+Replication and persistence demo
+
+![demo1](https://youtu.be/VdeBZ8zMJh0)
+
+Synced Audio Play/Pause/Skip demo
+
+![demo2](https://youtu.be/mU0tPr3vGqs)
+
 ## Built on
 
 We built a server and client using the `socket` and `threading` native Python libraries for our wire protocol implementation. 
