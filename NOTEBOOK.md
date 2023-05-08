@@ -18,6 +18,30 @@ Another major issue we encountered was file upload. We noticed that when clients
 
 A future step for this project would be to introduce hashing of the files, which would allow for the prevention of duplicate files and faster file retrieval. This would help the service scale better and allow for more efficient file storage.
 
+## **5/7**
+
+Bugs resolve:
+
+* Replication for simultaneously uploading files from multiple clients (broken bc servers only have one internal connection between one another)
+* “File received successfully” prints on input line
+    * Queue prints as empty always
+* Each time someone queues a song, this info should be sent to all clients. They drop songs from this queue when they stream it.
+* Upload existing file bug
+
+* Replication
+    * More testing
+    * Reconnect udp sockets if server dies
+    * Fix reconnect tcp sockets if server dies
+    * Fix server-to-server connection (don’t use client tcp sock)
+
+* Unit tests
+    * Test for server_paxos & client_paxos
+
+
+* Experiments/analysis
+    * How upload time changes with number of clients (all uploading at same time)
+    * Printing song frame + unix time to test syncing
+
 ## **5/6**
 
 Tasks done
